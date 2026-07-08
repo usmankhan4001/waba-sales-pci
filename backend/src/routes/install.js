@@ -10,10 +10,21 @@ const router = express.Router();
  * "reinstall/update" from Developer Resources. For a Local Application the
  * tokens arrive directly in the body - no authorization-code exchange step.
  */
-router.post('/', express.urlencoded({ extended: true }), async (req, res) => {
-  const { DOMAIN, PROTOCOL, AUTH_ID, AUTH_EXPIRES, REFRESH_ID, member_id } = req.body;
+const SECRET_FIELDS = new Set(['AUTH_ID', 'REFRESH_ID']);
+function redact(obj) {
+  return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, SECRET_FIELDS.has(k) ? '<redacted>' : v]));
+}
+
+async function handleInstall(req, res) {
+  const params = { ...req.query, ...req.body };
+  console.log(
+    `[install] ${req.method} content-type=${req.headers['content-type']} query=${JSON.stringify(redact(req.query))} body=${JSON.stringify(redact(req.body))}`
+  );
+
+  const { DOMAIN, PROTOCOL, AUTH_ID, AUTH_EXPIRES, REFRESH_ID, member_id } = params;
 
   if (!DOMAIN || !AUTH_ID || !REFRESH_ID) {
+    console.warn('[install] missing required params, keys present:', Object.keys(params));
     return res.status(400).send('Missing required install parameters');
   }
 
@@ -54,6 +65,11 @@ router.post('/', express.urlencoded({ extended: true }), async (req, res) => {
       </body>
     </html>
   `);
-});
+}
+
+router.use(express.urlencoded({ extended: true }));
+router.use(express.json());
+router.post('/', handleInstall);
+router.get('/', handleInstall);
 
 module.exports = router;
