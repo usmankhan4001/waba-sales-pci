@@ -12,6 +12,9 @@ const app = express();
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.use('/static', express.static(path.join(__dirname, '..', 'public')));
+// The Local App's configured install handler URL is the backend's root ("/"),
+// not /api/bitrix/install - mount at both so it works regardless.
+app.use('/', installRouter);
 app.use('/api/bitrix/install', installRouter);
 app.use('/api/send', sendRouter);
 app.use('/connect', connectRouter);
