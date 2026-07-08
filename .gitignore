@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+dist/
+.nuxt/
+.output/
+*.log
+data/
+.claude/
+
+# Project media assets, not app code
+*.mp4
+*.mov
+/premier choice international.jpg
