@@ -5,26 +5,50 @@ const { callMethod } = require('../bitrix/client');
 
 const router = express.Router();
 
-/**
- * Bitrix24 posts here on install (ONAPPINSTALL) and also re-posts on every
- * "reinstall/update" from Developer Resources. For a Local Application the
- * tokens arrive directly in the body - no authorization-code exchange step.
- */
 const SECRET_FIELDS = new Set(['AUTH_ID', 'REFRESH_ID']);
 function redact(obj) {
   return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, SECRET_FIELDS.has(k) ? '<redacted>' : v]));
 }
 
-async function handleInstall(req, res) {
+const SUCCESS_HTML = `
+  <html>
+    <head>
+      <script src="//api.bitrix24.com/api/v1/"></script>
+    </head>
+    <body>
+      <script>
+        BX24.init(function () {
+          BX24.installFinish();
+        });
+      </script>
+      Installed.
+    </body>
+  </html>
+`;
+
+/**
+ * Bitrix24 appears to probe this URL with a bare GET (no params) before sending the
+ * real ONAPPINSTALL POST - it must succeed unconditionally or Bitrix aborts before
+ * ever sending the actual install call with the auth tokens.
+ */
+router.get('/', (req, res) => {
+  console.log(`[install] GET probe query=${JSON.stringify(redact(req.query))}`);
+  res.set('Content-Type', 'text/html').send(SUCCESS_HTML);
+});
+
+/**
+ * Bitrix24 posts here on install (ONAPPINSTALL) and also re-posts on every
+ * "reinstall/update" from Developer Resources. For a Local Application the
+ * tokens arrive directly in the body - no authorization-code exchange step.
+ */
+router.post('/', express.urlencoded({ extended: true }), express.json(), async (req, res) => {
   const params = { ...req.query, ...req.body };
-  console.log(
-    `[install] ${req.method} content-type=${req.headers['content-type']} query=${JSON.stringify(redact(req.query))} body=${JSON.stringify(redact(req.body))}`
-  );
+  console.log(`[install] POST content-type=${req.headers['content-type']} body=${JSON.stringify(redact(req.body))}`);
 
   const { DOMAIN, PROTOCOL, AUTH_ID, AUTH_EXPIRES, REFRESH_ID, member_id } = params;
 
   if (!DOMAIN || !AUTH_ID || !REFRESH_ID) {
-    console.warn('[install] missing required params, keys present:', Object.keys(params));
+    console.warn('[install] POST missing required params, keys present:', Object.keys(params));
     return res.status(400).send('Missing required install parameters');
   }
 
@@ -50,26 +74,7 @@ async function handleInstall(req, res) {
     }
   }
 
-  res.set('Content-Type', 'text/html').send(`
-    <html>
-      <head>
-        <script src="//api.bitrix24.com/api/v1/"></script>
-      </head>
-      <body>
-        <script>
-          BX24.init(function () {
-            BX24.installFinish();
-          });
-        </script>
-        Installed.
-      </body>
-    </html>
-  `);
-}
-
-router.use(express.urlencoded({ extended: true }));
-router.use(express.json());
-router.post('/', handleInstall);
-router.get('/', handleInstall);
+  res.set('Content-Type', 'text/html').send(SUCCESS_HTML);
+});
 
 module.exports = router;
