@@ -9,11 +9,15 @@ const suppressionList = require('../store/suppressionList');
 const router = express.Router();
 router.use(express.json());
 
+// Real approved OnCloud template names (FR-9/10/11/12) - confirmed live via getTemplates.
+// No send_project_image equivalent is approved yet; kept here so a selected image fails
+// cleanly with "template not in approved state" rather than an unknown-type error.
+const CONTACT_NOW_TEMPLATE = 'contact_now_sales_pci';
 const MEDIA_TEMPLATES = {
-  brochure: { name: 'send_brochure_doc', build: (file, vars) => [oncloud.documentHeaderComponent(file.link, file.filename), oncloud.textComponent(vars)] },
-  pdf: { name: 'send_brochure_doc', build: (file, vars) => [oncloud.documentHeaderComponent(file.link, file.filename), oncloud.textComponent(vars)] },
-  video: { name: 'send_project_video', build: (file, vars) => [oncloud.videoHeaderComponent(file.link), oncloud.textComponent(vars)] },
-  image: { name: 'send_project_image', build: (file, vars) => [oncloud.imageHeaderComponent(file.link), oncloud.textComponent(vars)] },
+  brochure: { name: 'send_brochure_doc_sales_pci', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
+  pdf: { name: 'send_brochure_doc_sales_pci', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
+  video: { name: 'send_project_video_sales_pci', build: (file) => oncloud.videoHeaderComponent(file.link) },
+  image: { name: 'send_project_image_sales_pci', build: (file) => oncloud.imageHeaderComponent(file.link) },
 };
 
 /** FR-17: project's Drive cover image if one exists, else the fixed default brand cover. */
@@ -33,12 +37,23 @@ async function resolveCoverImageLink(domain, accessToken, projectDriveFolderId) 
  * Body: {
  *   domain, accessToken,          // from BX24.getAuth() on the frontend
  *   leadId, projectName, projectDriveFolderId,
- *   ctaNumber,                    // executive's WhatsApp number for the Contact Now button
+ *   ctaNumber, defaultCtaNumber,  // executive's WhatsApp number for the Contact Now button
+ *   executiveName,                // FR-10/11/12: 3rd body variable (signature line) on every template
  *   files: [{ id, type, filename }]   // Drive file id, resolved to a shareable link server-side
  * }
  */
 router.post('/', async (req, res) => {
-  const { domain, accessToken, leadId, projectName, projectDriveFolderId, ctaNumber, defaultCtaNumber, files = [] } = req.body;
+  const {
+    domain,
+    accessToken,
+    leadId,
+    projectName,
+    projectDriveFolderId,
+    ctaNumber,
+    defaultCtaNumber,
+    executiveName,
+    files = [],
+  } = req.body;
 
   if (!domain || !accessToken || !leadId || !ctaNumber || files.length === 0) {
     return res.status(400).json({ error: 'domain, accessToken, leadId, ctaNumber and at least one file are required' });
@@ -85,25 +100,28 @@ router.post('/', async (req, res) => {
         .map((t) => t.name || t.template_name)
     );
 
+    // FR-10/11/12: every approved template's body takes 3 vars - client name, project name, executive signature.
+    const bodyVars = [lead.NAME || 'there', projectName || 'the project', executiveName || 'Your Sales Advisor'];
+    // FR-15/16: one connect token per send, reused across every message in this batch.
+    const connectToken = connectTokens.createToken(ctaNumber);
+
     const results = [];
 
-    // 1. contact_now, sent first (FR-13). Button uses a short-lived connect token,
-    // not a raw wa.me link - Meta rejects wa.me submitted directly as a CTA button (FR-15/16).
+    // 1. contact_now, sent first (FR-13).
     try {
-      if (approvedNames.size && !approvedNames.has('contact_now')) {
-        throw new Error('contact_now template is not in approved state');
+      if (approvedNames.size && !approvedNames.has(CONTACT_NOW_TEMPLATE)) {
+        throw new Error(`${CONTACT_NOW_TEMPLATE} template is not in approved state`);
       }
-      const token = connectTokens.createToken(ctaNumber);
       const coverImageLink = await resolveCoverImageLink(domain, accessToken, projectDriveFolderId);
       if (!coverImageLink) throw new Error('No project cover image and no default cover image configured');
 
       await oncloud.sendTemplateMessage({
         phone,
-        templateName: 'contact_now',
+        templateName: CONTACT_NOW_TEMPLATE,
         components: [
           oncloud.imageHeaderComponent(coverImageLink),
-          oncloud.textComponent([lead.NAME || 'there']),
-          oncloud.urlButtonComponent(token),
+          oncloud.textComponent(bodyVars),
+          oncloud.urlButtonComponent(connectToken),
         ],
       });
       results.push({ item: 'contact_now', success: true });
@@ -130,7 +148,7 @@ router.post('/', async (req, res) => {
         await oncloud.sendTemplateMessage({
           phone,
           templateName: mapping.name,
-          components: mapping.build({ link, filename: file.filename }, [lead.NAME || 'there', projectName || '']),
+          components: [mapping.build({ link, filename: file.filename }), oncloud.textComponent(bodyVars), oncloud.urlButtonComponent(connectToken)],
         });
         results.push({ item: file.filename || file.type, success: true });
       } catch (err) {

@@ -14,14 +14,20 @@ function write(data) {
   fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
+// Bitrix's lead.PHONE and OnCloud's incoming-webhook "from" may format the same number
+// differently (e.g. "+971 50 123 4567" vs "971501234567") - compare digits only.
+function normalize(phone) {
+  return String(phone).replace(/\D/g, '');
+}
+
 function suppress(phone, reason) {
   const data = read();
-  data[phone] = { reason, suppressedAt: new Date().toISOString() };
+  data[normalize(phone)] = { reason, suppressedAt: new Date().toISOString() };
   write(data);
 }
 
 function isSuppressed(phone) {
-  return Boolean(read()[phone]);
+  return Boolean(read()[normalize(phone)]);
 }
 
 module.exports = { suppress, isSuppressed };

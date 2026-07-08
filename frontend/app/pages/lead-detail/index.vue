@@ -14,6 +14,7 @@ const projectDriveFolderId = ref<number | null>(null) // resolved by name-match 
 
 const ctaNumber = ref('')
 const defaultCtaNumber = ref('') // guardrail 8.2: used to flag deviation from the executive's profile default
+const executiveName = ref('') // FR-10/11/12: 3rd body variable (signature line) on every template
 
 type DriveFile = { id: number; name: string; type: 'brochure' | 'pdf' | 'video' | 'image' | null }
 const files = ref<DriveFile[]>([])
@@ -41,6 +42,11 @@ onMounted(async () => {
     const options = b24.placement.options as Record<string, any>
     leadId.value = Number(options?.ID ?? options?.ENTITY_ID)
 
+    if (!leadId.value || Number.isNaN(leadId.value)) {
+      loadError.value = 'Could not determine which Lead this tab belongs to.'
+      return
+    }
+
     const [leadRes, userRes, sectionsRes] = await Promise.all([
       b24.callMethod('crm.lead.get', { id: leadId.value }),
       b24.callMethod('user.current', {}),
@@ -48,9 +54,11 @@ onMounted(async () => {
     ])
 
     leadName.value = leadRes.getData().result?.NAME || ''
-    const profileCta = userRes.getData().result?.UF_USR_WHATSAPP_CTA || ''
+    const user = userRes.getData().result || {}
+    const profileCta = user.UF_USR_WHATSAPP_CTA || ''
     ctaNumber.value = profileCta
     defaultCtaNumber.value = profileCta
+    executiveName.value = [user.NAME, user.LAST_NAME].filter(Boolean).join(' ')
 
     const sections = sectionsRes.getData().result || []
     projects.value = sections
@@ -98,6 +106,10 @@ async function send() {
   results.value = null
   try {
     const auth = b24.auth.getAuthData()
+    if (!auth?.domain || !auth?.access_token) {
+      throw new Error('Could not read Bitrix24 auth from the frame - try reloading the tab.')
+    }
+
     const project = projects.value.find((p) => p.id === selectedProjectId.value)
     const selectedFiles = files.value
       .filter((f) => selectedFileIds.value.includes(f.id))
@@ -107,19 +119,21 @@ async function send() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        domain: auth?.domain,
-        accessToken: auth?.access_token,
+        domain: auth.domain,
+        accessToken: auth.access_token,
         leadId: leadId.value,
         projectName: project?.title,
         projectDriveFolderId: projectDriveFolderId.value,
         ctaNumber: ctaNumber.value,
         defaultCtaNumber: defaultCtaNumber.value,
+        executiveName: executiveName.value,
         files: selectedFiles,
       }),
     })
     const data = await resp.json()
     if (!resp.ok) throw new Error(data.error || 'Send failed')
     results.value = data.results
+    selectedFileIds.value = []
   } catch (err: any) {
     results.value = [{ item: 'Send', success: false, error: err.message }]
   } finally {
