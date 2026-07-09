@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const cors = require('cors');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const config = require('./config');
 
@@ -10,6 +11,15 @@ const oncloudWebhookRouter = require('./routes/oncloudWebhook');
 const analyticsRouter = require('./routes/analytics');
 
 const app = express();
+
+// The frontend's page can load from either its own direct domain or the backend's
+// proxied domain (see placement.bind below) - allow API calls from both defensively.
+app.use(
+  '/api',
+  cors({
+    origin: [config.frontendUrl, config.baseUrl].filter(Boolean),
+  })
+);
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
