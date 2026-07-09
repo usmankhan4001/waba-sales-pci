@@ -102,7 +102,11 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const leadResp = await callMethodWithToken(domain, 'crm.lead.get', { id: leadId }, accessToken);
+    // Lead + approved-templates fetch don't depend on each other - run concurrently.
+    const [leadResp, approvedTemplates] = await Promise.all([
+      callMethodWithToken(domain, 'crm.lead.get', { id: leadId }, accessToken),
+      oncloud.getTemplates(),
+    ]);
     const lead = leadResp.result;
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
@@ -125,7 +129,6 @@ router.post('/', async (req, res) => {
 
     rateLimiter.checkAndIncrement(responsibleId);
 
-    const approvedTemplates = await oncloud.getTemplates();
     const approvedNames = new Set(
       (Array.isArray(approvedTemplates) ? approvedTemplates : approvedTemplates?.data || [])
         .filter((t) => (t.status || t.quality || '').toString().toLowerCase() === 'approved')
@@ -142,6 +145,21 @@ router.post('/', async (req, res) => {
     // FR-15/16: one connect token per send, reused across every message in this batch.
     const connectToken = connectTokens.createToken(ctaNumber);
 
+    // Resolve every Drive link (cover image + each selected file) up front, in parallel -
+    // these are independent Bitrix lookups and don't need to wait on each other or on any send.
+    const [coverImageLink, fileLinks] = await Promise.all([
+      includeContactNow ? resolveCoverImageLink(domain, accessToken, projectDriveFolderId) : Promise.resolve(null),
+      Promise.all(
+        files.map(async (file) => {
+          try {
+            return { file, link: await resolveFileDownloadUrl(domain, accessToken, file.id) };
+          } catch (err) {
+            return { file, error: err.message };
+          }
+        })
+      ),
+    ]);
+
     const results = [];
     const analyticsBase = { leadId, leadName: lead.NAME, projectName, executiveName, ctaNumber, responsibleId };
 
@@ -151,7 +169,6 @@ router.post('/', async (req, res) => {
         if (approvedNames.size && !approvedNames.has(CONTACT_NOW_TEMPLATE)) {
           throw new Error(`${CONTACT_NOW_TEMPLATE} template is not in approved state`);
         }
-        const coverImageLink = await resolveCoverImageLink(domain, accessToken, projectDriveFolderId);
         if (!coverImageLink) throw new Error('No project cover image and no default cover image configured');
 
         await oncloud.sendTemplateMessage({
@@ -170,7 +187,7 @@ router.post('/', async (req, res) => {
     }
 
     // 2. one template per selected file (FR-10/11/12), independent failures (guardrail 8.3)
-    for (const file of files) {
+    for (const { file, link, error } of fileLinks) {
       const mapping = MEDIA_TEMPLATES[file.type];
       if (!mapping) {
         results.push({ item: file.filename || file.type, success: false, error: `Unknown file type: ${file.type}` });
@@ -180,8 +197,8 @@ router.post('/', async (req, res) => {
         if (approvedNames.size && !approvedNames.has(mapping.name)) {
           throw new Error(`${mapping.name} template is not in approved state`);
         }
+        if (error) throw new Error(error);
         // Direct-download link (not the HTML preview page), per guardrail 8.2 - read-only, not editable.
-        const link = await resolveFileDownloadUrl(domain, accessToken, file.id);
         if (!link) throw new Error('Could not resolve a shareable Drive link for this file');
 
         await oncloud.sendTemplateMessage({
@@ -202,26 +219,29 @@ router.post('/', async (req, res) => {
         : `CTA number: ${ctaNumber}`;
 
     // 4. One Activity per item + one analytics record per item, even on partial failure (guardrail 8.3 / FR-6).
-    // Logging failures must never mask an otherwise-successful WhatsApp send, so each is independent.
-    for (const r of results) {
-      const label = r.item === 'contact_now' ? 'Contact Now' : r.item;
-      try {
-        await logActivity(domain, accessToken, {
-          leadId,
-          responsibleId,
-          phone,
-          subject: `WhatsApp ${label} — ${r.success ? 'sent' : 'failed'} (${projectName || 'project'})`,
-          description: `${ctaLine}\n${label}: ${r.success ? 'sent ✓' : `failed ✗ (${r.error})`}`,
-        });
-      } catch (err) {
-        console.error(`[send] logActivity failed for lead ${leadId}, item ${label}:`, err.response?.data || err.message);
-      }
-      try {
-        analyticsLog.record({ ...analyticsBase, item: r.item, type: r.type || 'contact_now', success: r.success, error: r.error || null });
-      } catch (err) {
-        console.error(`[send] analyticsLog.record failed for lead ${leadId}, item ${label}:`, err.message);
-      }
-    }
+    // Logging failures must never mask an otherwise-successful WhatsApp send, so each is independent,
+    // and all items log in parallel since order doesn't matter here (unlike the sends above).
+    await Promise.all(
+      results.map(async (r) => {
+        const label = r.item === 'contact_now' ? 'Contact Now' : r.item;
+        try {
+          await logActivity(domain, accessToken, {
+            leadId,
+            responsibleId,
+            phone,
+            subject: `WhatsApp ${label} — ${r.success ? 'sent' : 'failed'} (${projectName || 'project'})`,
+            description: `${ctaLine}\n${label}: ${r.success ? 'sent ✓' : `failed ✗ (${r.error})`}`,
+          });
+        } catch (err) {
+          console.error(`[send] logActivity failed for lead ${leadId}, item ${label}:`, err.response?.data || err.message);
+        }
+        try {
+          analyticsLog.record({ ...analyticsBase, item: r.item, type: r.type || 'contact_now', success: r.success, error: r.error || null });
+        } catch (err) {
+          console.error(`[send] analyticsLog.record failed for lead ${leadId}, item ${label}:`, err.message);
+        }
+      })
+    );
 
     res.json({ results });
   } catch (err) {

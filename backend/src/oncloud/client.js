@@ -19,13 +19,22 @@ async function getToken() {
   return tokenStore.getOncloudToken() || login();
 }
 
-/** FR-14: validate template is approved before sending against it. */
+const TEMPLATES_CACHE_TTL_MS = 60_000;
+let templatesCache = null; // { fetchedAt, templates }
+
+/** FR-14: validate template is approved before sending against it. Cached briefly - templates
+ * rarely change and this call was adding a full extra round-trip to every single send. */
 async function getTemplates() {
+  if (templatesCache && Date.now() - templatesCache.fetchedAt < TEMPLATES_CACHE_TTL_MS) {
+    return templatesCache.templates;
+  }
   const token = await getToken();
   const { data } = await axios.get(`${config.oncloud.baseUrl}/api/wpbox/getTemplates`, {
     params: { token },
   });
-  return data.templates || [];
+  const templates = data.templates || [];
+  templatesCache = { fetchedAt: Date.now(), templates };
+  return templates;
 }
 
 async function sendTemplateMessageOnce({ phone, templateName, templateLanguage = 'en', components = [] }) {
