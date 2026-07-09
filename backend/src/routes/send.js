@@ -188,19 +188,29 @@ router.post('/', async (req, res) => {
         : `CTA number: ${ctaNumber}`;
 
     // 4. One Activity per item + one analytics record per item, even on partial failure (guardrail 8.3 / FR-6).
+    // Logging failures must never mask an otherwise-successful WhatsApp send, so each is independent.
     for (const r of results) {
       const label = r.item === 'contact_now' ? 'Contact Now' : r.item;
-      await logActivity(domain, accessToken, {
-        leadId,
-        responsibleId,
-        subject: `WhatsApp ${label} — ${r.success ? 'sent' : 'failed'} (${projectName || 'project'})`,
-        description: `${ctaLine}\n${label}: ${r.success ? 'sent ✓' : `failed ✗ (${r.error})`}`,
-      });
-      analyticsLog.record({ ...analyticsBase, item: r.item, type: r.type || 'contact_now', success: r.success, error: r.error || null });
+      try {
+        await logActivity(domain, accessToken, {
+          leadId,
+          responsibleId,
+          subject: `WhatsApp ${label} — ${r.success ? 'sent' : 'failed'} (${projectName || 'project'})`,
+          description: `${ctaLine}\n${label}: ${r.success ? 'sent ✓' : `failed ✗ (${r.error})`}`,
+        });
+      } catch (err) {
+        console.error(`[send] logActivity failed for lead ${leadId}, item ${label}:`, err.response?.data || err.message);
+      }
+      try {
+        analyticsLog.record({ ...analyticsBase, item: r.item, type: r.type || 'contact_now', success: r.success, error: r.error || null });
+      } catch (err) {
+        console.error(`[send] analyticsLog.record failed for lead ${leadId}, item ${label}:`, err.message);
+      }
     }
 
     res.json({ results });
   } catch (err) {
+    console.error('[send] unhandled error:', err.response?.data || err.message);
     if (err.rateLimited) return res.status(429).json({ error: err.message });
     res.status(500).json({ error: err.message });
   }
