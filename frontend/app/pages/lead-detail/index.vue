@@ -8,12 +8,10 @@ const leadId = ref<number | null>(null)
 const leadName = ref('')
 const leadPhone = ref('') // recipient's own WhatsApp number, auto-fetched (read-only, sourced from the CRM Lead)
 
-// Projects are catalog sections (crm.productsection.list), not a custom SPA - confirmed via live
-// discovery. Leaf sections (non-null SECTION_ID) within the product catalog are the projects
-// (e.g. "Box Park 3", "Buraq Heights"), the null-SECTION_ID sections are country-level buckets.
+// Projects come directly from the Drive subfolders under NUXT_PUBLIC_PROJECTS_DRIVE_ROOT_FOLDER_ID
+// ("WABA Project Files") - each subfolder IS a project, named however the folder is named.
 const projects = ref<{ id: number; title: string }[]>([])
-const selectedProjectId = ref<number | null>(null)
-const projectDriveFolderId = ref<number | null>(null) // resolved by name-match once selected
+const selectedProjectId = ref<number | null>(null) // same as the project's Drive folder ID
 
 type MessageType = 'contact_now' | 'brochure' | 'video' | 'image' | 'layout'
 const MESSAGE_TYPE_LABELS: Record<MessageType, string> = {
@@ -65,10 +63,10 @@ onMounted(async () => {
       return
     }
 
-    const [leadRes, userRes, sectionsRes] = await Promise.all([
+    const [leadRes, userRes, rootRes] = await Promise.all([
       b24.callMethod('crm.lead.get', { id: leadId.value }),
       b24.callMethod('user.current', {}),
-      b24.callMethod('crm.productsection.list', { filter: { CATALOG_ID: config.public.productCatalogId } }),
+      b24.callMethod('disk.folder.getchildren', { id: Number(config.public.projectsDriveRootFolderId) }),
     ])
 
     const lead = leadRes.getData().result || {}
@@ -83,10 +81,10 @@ onMounted(async () => {
     executiveName.value = [user.NAME, user.LAST_NAME].filter(Boolean).join(' ')
     executiveSignature.value = executiveName.value || 'Your Sales Advisor'
 
-    const sections = sectionsRes.getData().result || []
-    projects.value = sections
-      .filter((s: any) => s.SECTION_ID !== null)
-      .map((s: any) => ({ id: Number(s.ID), title: s.NAME }))
+    const rootChildren = rootRes.getData().result || []
+    projects.value = rootChildren
+      .filter((c: any) => c.TYPE === 'folder')
+      .map((c: any) => ({ id: Number(c.ID), title: c.NAME }))
   } catch (err: any) {
     loadError.value = err.message || 'Failed to load lead data'
   }
@@ -95,21 +93,12 @@ onMounted(async () => {
 watch(selectedProjectId, async (id) => {
   files.value = []
   selectedFileIds.value = []
-  projectDriveFolderId.value = null
 
   const project = projects.value.find((p) => p.id === id)
   projectText.value = project?.title || ''
-  if (!project || !config.public.projectsDriveRootFolderId) return
+  if (!project) return
 
-  // Drive structure isn't organized yet (per project) - once it is, each project's folder
-  // should sit directly under projectsDriveRootFolderId with a name matching the section exactly.
-  const rootRes = await b24.callMethod('disk.folder.getchildren', { id: Number(config.public.projectsDriveRootFolderId) })
-  const rootChildren = rootRes.getData().result || []
-  const match = rootChildren.find((c: any) => c.TYPE === 'folder' && c.NAME === project.title)
-  if (!match) return
-
-  projectDriveFolderId.value = Number(match.ID)
-  const res = await b24.callMethod('disk.folder.getchildren', { id: projectDriveFolderId.value })
+  const res = await b24.callMethod('disk.folder.getchildren', { id })
   const children = res.getData().result || []
   files.value = children
     .filter((c: any) => c.TYPE === 'file')
@@ -192,7 +181,7 @@ async function send() {
         accessToken: auth.access_token,
         leadId: leadId.value,
         projectName: projectText.value,
-        projectDriveFolderId: projectDriveFolderId.value,
+        projectDriveFolderId: selectedProjectId.value,
         ctaNumber: ctaNumber.value,
         defaultCtaNumber: defaultCtaNumber.value,
         executiveName: executiveName.value,
