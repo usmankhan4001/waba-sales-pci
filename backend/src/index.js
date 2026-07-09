@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 const config = require('./config');
 
 const installRouter = require('./routes/install');
@@ -19,6 +20,19 @@ app.use('/api/bitrix/install', installRouter);
 app.use('/api/send', sendRouter);
 app.use('/connect', connectRouter);
 app.use('/api/oncloud/webhook', oncloudWebhookRouter);
+
+// Bitrix24 requires placement.bind's HANDLER to be on the same domain as the app's
+// registered handler URL - so the frontend (a separate Dokploy app/domain) is proxied
+// through here for everything not otherwise handled above, making it all same-origin.
+if (config.frontendUrl) {
+  app.use(
+    '/',
+    createProxyMiddleware({
+      target: config.frontendUrl,
+      changeOrigin: true,
+    })
+  );
+}
 
 app.listen(config.port, () => {
   console.log(`WABA-Bitrix24 backend listening on port ${config.port}`);

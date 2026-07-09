@@ -61,17 +61,19 @@ router.post('/', express.urlencoded({ extended: true }), express.json(), async (
     memberId: member_id,
   });
 
-  // FR-1: bind the Lead-detail placement to the frontend - no manual UI step needed for this part.
-  if (config.frontendUrl) {
-    try {
-      await callMethod(DOMAIN, 'placement.bind', {
-        PLACEMENT: 'CRM_LEAD_DETAIL_TAB',
-        HANDLER: `${config.frontendUrl}/lead-detail`,
-        TITLE: 'Send WhatsApp Material',
-      });
-    } catch (err) {
-      console.error(`[install] placement.bind failed for ${DOMAIN}:`, err.message);
-    }
+  // FR-1: bind the Lead-detail placement - no manual UI step needed for this part.
+  // The HANDLER must be on this same backend domain (the app's registered domain) -
+  // Bitrix24 rejects placement.bind if it points at a different domain (e.g. the
+  // frontend's own separate Dokploy domain), so /lead-detail is reverse-proxied
+  // through to the actual frontend app (see index.js).
+  try {
+    await callMethod(DOMAIN, 'placement.bind', {
+      PLACEMENT: 'CRM_LEAD_DETAIL_TAB',
+      HANDLER: `${config.baseUrl}/lead-detail`,
+      TITLE: 'Send WhatsApp Material',
+    });
+  } catch (err) {
+    console.error(`[install] placement.bind failed for ${DOMAIN}:`, err.response?.data || err.message);
   }
 
   res.set('Content-Type', 'text/html').send(SUCCESS_HTML);
