@@ -15,8 +15,9 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    const userResp = await callMethodWithToken(domain, 'user.current', {}, accessToken);
-    if (!userResp.result?.ADMIN) {
+    // user.current's ADMIN field isn't reliably present - user.admin returns a clean boolean.
+    const adminResp = await callMethodWithToken(domain, 'user.admin', {}, accessToken);
+    if (!adminResp.result) {
       return res.status(403).json({ error: 'Analytics is restricted to portal admins' });
     }
 
