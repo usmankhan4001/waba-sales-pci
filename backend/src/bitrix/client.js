@@ -1,6 +1,13 @@
 const axios = require('axios');
 const { getValidAuth, refreshAuth } = require('./auth');
 
+// The frontend's B24 SDK may hand back domain as a bare host ("pcicrm.bitrix24.com")
+// or a full URL ("https://pcicrm.bitrix24.com") depending on context - normalize to
+// a bare host so building "https://${domain}/..." never double-prefixes the protocol.
+function normalizeDomain(domain) {
+  return String(domain).replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
 /**
  * Calls a Bitrix24 REST method for a given installed portal domain,
  * transparently refreshing the OAuth token once on a 401/expired_token.
@@ -35,7 +42,7 @@ async function callMethod(domain, method, params = {}) {
  * portal permissions rather than the app's install-level admin token.
  */
 async function callMethodWithToken(domain, method, params = {}, accessToken) {
-  const url = `https://${domain}/rest/${method}`;
+  const url = `https://${normalizeDomain(domain)}/rest/${method}`;
   const { data } = await axios.post(url, params, { params: { auth: accessToken } });
   return data;
 }
