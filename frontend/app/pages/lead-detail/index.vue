@@ -290,6 +290,7 @@ async function send() {
         </div>
 
         <B24Button :disabled="!canSend" :loading="sending" @click="send">Send</B24Button>
+        <div v-if="sending" class="text-xs text-gray-500">Sending to WhatsApp - this can take a few seconds per item...</div>
 
         <div v-if="results" class="space-y-1">
           <B24Alert
