@@ -43,7 +43,7 @@ async function resolveCoverImageLink(domain, accessToken, projectDriveFolderId) 
 }
 
 /** One CRM Activity per item, so the activity panel shows each media message individually. */
-async function logActivity(domain, accessToken, { leadId, responsibleId, subject, description }) {
+async function logActivity(domain, accessToken, { leadId, responsibleId, subject, description, phone }) {
   await callMethodWithToken(
     domain,
     'crm.activity.add',
@@ -51,12 +51,18 @@ async function logActivity(domain, accessToken, { leadId, responsibleId, subject
       fields: {
         OWNER_TYPE_ID: 1, // Lead
         OWNER_ID: leadId,
-        TYPE_ID: 4, // message-type activity
+        // TYPE_ID 4 is actually "E-mail" (confirmed via crm.enum.activitytype) and TYPE_ID 5
+        // ("Activity") isn't a valid context for crm.activity.add - 2 ("Call") is the closest
+        // built-in channel type that accepts a phone COMMUNICATIONS entry, confirmed live.
+        TYPE_ID: 2,
         SUBJECT: subject,
         DESCRIPTION: description,
         DESCRIPTION_TYPE: 1,
         RESPONSIBLE_ID: responsibleId,
         COMPLETED: 'Y',
+        // Required field for this activity type - without it Bitrix rejects with
+        // "The field COMMUNICATIONS is not defined or invalid." (confirmed live).
+        COMMUNICATIONS: phone ? [{ VALUE: phone, ENTITY_ID: leadId, ENTITY_TYPE_ID: 1 }] : undefined,
       },
     },
     accessToken
@@ -110,6 +116,7 @@ router.post('/', async (req, res) => {
       await logActivity(domain, accessToken, {
         leadId,
         responsibleId,
+        phone,
         subject: `WhatsApp material NOT sent — ${projectName || 'project'}`,
         description: `This lead's number (${phone}) has opted out of WhatsApp messaging and was skipped.`,
       });
@@ -202,6 +209,7 @@ router.post('/', async (req, res) => {
         await logActivity(domain, accessToken, {
           leadId,
           responsibleId,
+          phone,
           subject: `WhatsApp ${label} — ${r.success ? 'sent' : 'failed'} (${projectName || 'project'})`,
           description: `${ctaLine}\n${label}: ${r.success ? 'sent ✓' : `failed ✗ (${r.error})`}`,
         });
