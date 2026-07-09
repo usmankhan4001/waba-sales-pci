@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { withFileLock } = require('./withFileLock');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const FILE = path.join(DATA_DIR, 'suppressedNumbers.json');
@@ -20,10 +21,12 @@ function normalize(phone) {
   return String(phone).replace(/\D/g, '');
 }
 
-function suppress(phone, reason) {
-  const data = read();
-  data[normalize(phone)] = { reason, suppressedAt: new Date().toISOString() };
-  write(data);
+async function suppress(phone, reason) {
+  return withFileLock(FILE, () => {
+    const data = read();
+    data[normalize(phone)] = { reason, suppressedAt: new Date().toISOString() };
+    write(data);
+  });
 }
 
 function isSuppressed(phone) {

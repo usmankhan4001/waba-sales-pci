@@ -3,6 +3,7 @@ const b24 = useB24()
 const config = useRuntimeConfig()
 
 const loadError = ref('')
+const fileLoadError = ref('') // non-blocking: shown inline, doesn't hide the whole form
 
 const leadId = ref<number | null>(null)
 const leadName = ref('')
@@ -39,12 +40,16 @@ const selectedFileIds = ref<number[]>([])
 const sending = ref(false)
 const results = ref<{ item: string; success: boolean; error?: string }[] | null>(null)
 
+// Extension-based patterns checked before keyword-based ones, so e.g. "video_layout_plan.mp4"
+// classifies as video (unambiguous from the extension) rather than layout (an incidental
+// keyword match).
 const TYPE_BY_KEYWORD: [RegExp, DriveFile['type']][] = [
+  [/\.(mp4|mov)$/i, 'video'],
+  [/\.pdf$/i, 'brochure'],
+  [/\.(png|jpe?g|gif|webp)$/i, 'image'],
   [/brochure/i, 'brochure'],
   [/layout/i, 'layout'],
-  [/\.pdf$/i, 'brochure'],
-  [/video|\.mp4$|\.mov$/i, 'video'],
-  [/\.(png|jpe?g|gif|webp)$/i, 'image'],
+  [/video/i, 'video'],
 ]
 
 function classify(name: string): DriveFile['type'] {
@@ -93,17 +98,22 @@ onMounted(async () => {
 watch(selectedProjectId, async (id) => {
   files.value = []
   selectedFileIds.value = []
+  fileLoadError.value = ''
 
   const project = projects.value.find((p) => p.id === id)
   projectText.value = project?.title || ''
   if (!project) return
 
-  const res = await b24.callMethod('disk.folder.getchildren', { id })
-  const children = res.getData().result || []
-  files.value = children
-    .filter((c: any) => c.TYPE === 'file')
-    .map((c: any) => ({ id: Number(c.ID), name: c.NAME, type: classify(c.NAME) }))
-    .filter((f: DriveFile) => f.type)
+  try {
+    const res = await b24.callMethod('disk.folder.getchildren', { id })
+    const children = res.getData().result || []
+    files.value = children
+      .filter((c: any) => c.TYPE === 'file')
+      .map((c: any) => ({ id: Number(c.ID), name: c.NAME, type: classify(c.NAME) }))
+      .filter((f: DriveFile) => f.type)
+  } catch (err: any) {
+    fileLoadError.value = `Could not load files for this project: ${err.message}`
+  }
 })
 
 const mediaTypesSelected = computed(() => selectedMessageTypes.value.filter((t) => t !== 'contact_now') as DriveFile['type'][])
@@ -149,11 +159,30 @@ function renderPreviewBody(type: MessageType) {
     .replace('{{3}}', executiveSignature.value || 'Your Sales Advisor')
 }
 
+// clientName/projectText/executiveSignature are free-text user input - rendering them via
+// v-html would be a stored-XSS vector (arbitrary script executing inside the Bitrix24 iframe,
+// which has a live CRM access token). Split into text/bold segments instead and render through
+// normal Vue interpolation, which auto-escapes.
+function renderPreviewSegments(type: MessageType): { text: string; bold: boolean }[] {
+  const raw = renderPreviewBody(type)
+  return raw
+    .split(/(\*[^*]+\*)/g)
+    .filter(Boolean)
+    .map((part) => {
+      const bold = part.match(/^\*([^*]+)\*$/)
+      return bold ? { text: bold[1], bold: true } : { text: part, bold: false }
+    })
+}
+
 const previewItems = computed(() => {
   const items: { type: MessageType; label: string; file?: DriveFile }[] = []
   if (selectedMessageTypes.value.includes('contact_now')) items.push({ type: 'contact_now', label: 'Contact Now (cover image)' })
   for (const f of files.value) {
-    if (f.type && selectedFileIds.value.includes(f.id)) items.push({ type: f.type, label: f.name, file: f })
+    // Guard against a file whose type checkbox was unchecked after the file was selected -
+    // otherwise it silently stays in the send batch despite looking deselected.
+    if (f.type && mediaTypesSelected.value.includes(f.type) && selectedFileIds.value.includes(f.id)) {
+      items.push({ type: f.type, label: f.name, file: f })
+    }
   }
   return items
 })
@@ -169,9 +198,11 @@ async function send() {
       throw new Error('Could not read Bitrix24 auth from the frame - try reloading the tab.')
     }
 
-    const selectedFiles = files.value
-      .filter((f) => selectedFileIds.value.includes(f.id))
-      .map((f) => ({ id: f.id, type: f.type, filename: f.name }))
+    // Derived from previewItems (not files.value directly) so a file whose type checkbox
+    // was unchecked after selection can't sneak into the send batch despite not previewing.
+    const selectedFiles = previewItems.value
+      .filter((item) => item.file)
+      .map((item) => ({ id: item.file!.id, type: item.file!.type, filename: item.file!.name }))
 
     const resp = await fetch(`${config.public.backendUrl}/api/send`, {
       method: 'POST',
@@ -249,6 +280,8 @@ async function send() {
           </div>
         </div>
 
+        <B24Alert v-if="fileLoadError" color="air-primary-alert" :title="fileLoadError" />
+
         <div v-if="selectedProjectId && mediaTypesSelected.length" class="space-y-3">
           <div v-for="type in mediaTypesSelected" :key="type">
             <div class="text-sm font-medium mb-1">{{ MESSAGE_TYPE_LABELS[type] }}</div>
@@ -282,7 +315,12 @@ async function send() {
           <label class="block text-sm font-medium">Preview</label>
           <div v-for="(item, i) in previewItems" :key="i" class="border rounded-lg p-3 bg-[#e7ffdb]">
             <div class="text-xs font-medium text-gray-500 mb-1">{{ item.label }}</div>
-            <div class="whitespace-pre-line text-sm" v-html="renderPreviewBody(item.type).replace(/\*(.+?)\*/g, '<strong>$1</strong>')" />
+            <div class="whitespace-pre-line text-sm">
+              <template v-for="(seg, si) in renderPreviewSegments(item.type)" :key="si">
+                <strong v-if="seg.bold">{{ seg.text }}</strong>
+                <template v-else>{{ seg.text }}</template>
+              </template>
+            </div>
             <div v-if="PREVIEW_BUTTON[item.type]" class="mt-2 text-center text-sm text-blue-600 border-t pt-2">
               {{ PREVIEW_BUTTON[item.type] }}
             </div>

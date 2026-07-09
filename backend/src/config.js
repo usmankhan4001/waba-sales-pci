@@ -19,4 +19,7 @@ module.exports = {
   fallbackWhatsappNumber: process.env.FALLBACK_WHATSAPP_NUMBER,
   // FR-17: brand cover image used when a project has no Drive cover image of its own
   defaultCoverImageUrl: process.env.DEFAULT_COVER_IMAGE_URL,
+  // Shared secret required as ?secret= on the OnCloud incoming-message webhook, so an
+  // anonymous caller can't mass-suppress arbitrary numbers via the opt-out endpoint.
+  oncloudWebhookSecret: process.env.ONCLOUD_WEBHOOK_SECRET,
 };

@@ -11,19 +11,26 @@ function stripLiteralPlaceholder(raw) {
   return raw.replace(/^\{\{token\}\}/, '');
 }
 
+// wa.me/<number> must be digits only - a crafted CTA number like "1234@evil.com" would
+// otherwise be parsed by browsers as userinfo+host, turning this into an open redirect.
+function sanitizePhoneForWaMe(raw) {
+  return String(raw).replace(/\D/g, '');
+}
+
 /** FR-16: resolves a short-lived connect token and 302s to the executive's wa.me link. */
-router.get('/:token', (req, res) => {
+router.get('/:token', async (req, res) => {
   const token = stripLiteralPlaceholder(req.params.token);
-  const number = connectTokens.resolveToken(token);
+  const number = await connectTokens.resolveToken(token);
 
   if (!number) {
     console.warn(`[connect] unknown or expired token: ${token}`);
     if (!config.fallbackWhatsappNumber) return res.status(410).send('This link has expired.');
-    return res.redirect(302, `https://wa.me/${config.fallbackWhatsappNumber}`);
+    return res.redirect(302, `https://wa.me/${sanitizePhoneForWaMe(config.fallbackWhatsappNumber)}`);
   }
 
-  console.log(`[connect] token ${token} -> wa.me/${number}`);
-  res.redirect(302, `https://wa.me/${number}`);
+  const safeNumber = sanitizePhoneForWaMe(number);
+  console.log(`[connect] token ${token} -> wa.me/${safeNumber}`);
+  res.redirect(302, `https://wa.me/${safeNumber}`);
 });
 
 module.exports = router;

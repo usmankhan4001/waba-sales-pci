@@ -44,6 +44,14 @@ async function callMethod(domain, method, params = {}) {
 async function callMethodWithToken(domain, method, params = {}, accessToken) {
   const url = `https://${normalizeDomain(domain)}/rest/${method}`;
   const { data } = await axios.post(url, params, { params: { auth: accessToken } });
+  // Bitrix returns errors as HTTP 200 with an {error, error_description} body - axios sees
+  // this as success, so without this check a stale/expired token silently produces undefined
+  // results downstream (misreported as "Lead not found" etc.) instead of a clear failure.
+  if (data.error) {
+    const err = new Error(`Bitrix ${method} failed: ${data.error_description || data.error}`);
+    err.bitrixError = data.error;
+    throw err;
+  }
   return data;
 }
 

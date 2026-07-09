@@ -3,13 +3,16 @@ const { callMethodWithToken } = require('../bitrix/client');
 const analyticsLog = require('../store/analyticsLog');
 
 const router = express.Router();
+router.use(express.json());
 
 /**
- * GET /api/analytics?domain=...&accessToken=...
+ * POST /api/analytics { domain, accessToken }
  * Admin-only: aggregates every logged send (see analyticsLog) by lead and by project.
+ * POST (not GET query params) so the access token doesn't end up in server/proxy access
+ * logs, browser history, or Referer headers.
  */
-router.get('/', async (req, res) => {
-  const { domain, accessToken } = req.query;
+router.post('/', async (req, res) => {
+  const { domain, accessToken } = req.body;
   if (!domain || !accessToken) {
     return res.status(400).json({ error: 'domain and accessToken are required' });
   }

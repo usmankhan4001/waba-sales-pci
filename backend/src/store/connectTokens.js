@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { withFileLock } = require('./withFileLock');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const FILE = path.join(DATA_DIR, 'connectTokens.json');
@@ -16,25 +17,29 @@ function write(data) {
   fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
-function createToken(whatsappNumber) {
-  const token = crypto.randomBytes(12).toString('base64url');
-  const data = read();
-  data[token] = { number: whatsappNumber, expiresAt: Date.now() + TTL_MS };
-  write(data);
-  return token;
+async function createToken(whatsappNumber) {
+  return withFileLock(FILE, () => {
+    const token = crypto.randomBytes(12).toString('base64url');
+    const data = read();
+    data[token] = { number: whatsappNumber, expiresAt: Date.now() + TTL_MS };
+    write(data);
+    return token;
+  });
 }
 
 /** Returns the WhatsApp number for a valid, unexpired token, or null. */
-function resolveToken(token) {
-  const data = read();
-  const entry = data[token];
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    delete data[token];
-    write(data);
-    return null;
-  }
-  return entry.number;
+async function resolveToken(token) {
+  return withFileLock(FILE, () => {
+    const data = read();
+    const entry = data[token];
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      delete data[token];
+      write(data);
+      return null;
+    }
+    return entry.number;
+  });
 }
 
 module.exports = { createToken, resolveToken };

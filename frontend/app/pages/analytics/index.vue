@@ -15,14 +15,16 @@ onMounted(async () => {
     const auth = b24.auth.getAuthData()
     if (!auth?.domain || !auth?.access_token) throw new Error('Could not read Bitrix24 auth from the frame.')
 
-    const resp = await fetch(
-      `${config.public.backendUrl}/api/analytics?domain=${encodeURIComponent(auth.domain)}&accessToken=${encodeURIComponent(auth.access_token)}`
-    )
+    const resp = await fetch(`${config.public.backendUrl}/api/analytics`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain: auth.domain, accessToken: auth.access_token }),
+    })
     const body = await resp.json()
     if (!resp.ok) throw new Error(body.error || 'Failed to load analytics')
     data.value = body
   } catch (err: any) {
-    error.value = err.message
+    error.value = err.message || 'Failed to load analytics - check your connection and try again.'
   } finally {
     loading.value = false
   }

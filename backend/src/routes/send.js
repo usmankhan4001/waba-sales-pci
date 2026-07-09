@@ -127,7 +127,7 @@ router.post('/', async (req, res) => {
       return res.status(200).json({ results: [{ item: 'all', success: false, error: 'Lead has opted out of WhatsApp messaging' }] });
     }
 
-    rateLimiter.checkAndIncrement(responsibleId);
+    await rateLimiter.checkAndIncrement(responsibleId, ctaNumber);
 
     const approvedNames = new Set(
       (Array.isArray(approvedTemplates) ? approvedTemplates : approvedTemplates?.data || [])
@@ -143,7 +143,7 @@ router.post('/', async (req, res) => {
       executiveSignature || executiveName || 'Your Sales Advisor',
     ];
     // FR-15/16: one connect token per send, reused across every message in this batch.
-    const connectToken = connectTokens.createToken(ctaNumber);
+    const connectToken = await connectTokens.createToken(ctaNumber);
 
     // Resolve every Drive link (cover image + each selected file) up front, in parallel -
     // these are independent Bitrix lookups and don't need to wait on each other or on any send.

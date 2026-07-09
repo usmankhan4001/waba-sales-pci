@@ -52,7 +52,7 @@ router.post('/', express.urlencoded({ extended: true }), express.json(), async (
     return res.status(400).send('Missing required install parameters');
   }
 
-  saveInstallAuth({
+  await saveInstallAuth({
     domain: DOMAIN,
     protocol: PROTOCOL === '1' ? 'https' : 'https',
     authId: AUTH_ID,

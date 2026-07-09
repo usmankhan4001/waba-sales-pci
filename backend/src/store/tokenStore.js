@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { withFileLock } = require('./withFileLock');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const FILE = path.join(DATA_DIR, 'tokens.json');
@@ -14,11 +15,13 @@ function writeAll(data) {
   fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
-function saveBitrixAuth(domain, auth) {
-  const data = readAll();
-  data.bitrix = data.bitrix || {};
-  data.bitrix[domain] = auth;
-  writeAll(data);
+async function saveBitrixAuth(domain, auth) {
+  return withFileLock(FILE, () => {
+    const data = readAll();
+    data.bitrix = data.bitrix || {};
+    data.bitrix[domain] = auth;
+    writeAll(data);
+  });
 }
 
 function getBitrixAuth(domain) {
@@ -26,10 +29,12 @@ function getBitrixAuth(domain) {
   return data.bitrix && data.bitrix[domain];
 }
 
-function saveOncloudToken(token) {
-  const data = readAll();
-  data.oncloud = { token, fetchedAt: Date.now() };
-  writeAll(data);
+async function saveOncloudToken(token) {
+  return withFileLock(FILE, () => {
+    const data = readAll();
+    data.oncloud = { token, fetchedAt: Date.now() };
+    writeAll(data);
+  });
 }
 
 function getOncloudToken() {
