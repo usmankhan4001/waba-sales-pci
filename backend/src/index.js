@@ -7,6 +7,7 @@ const installRouter = require('./routes/install');
 const sendRouter = require('./routes/send');
 const connectRouter = require('./routes/connect');
 const oncloudWebhookRouter = require('./routes/oncloudWebhook');
+const analyticsRouter = require('./routes/analytics');
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use('/api/bitrix/install', installRouter);
 app.use('/api/send', sendRouter);
 app.use('/connect', connectRouter);
 app.use('/api/oncloud/webhook', oncloudWebhookRouter);
+app.use('/api/analytics', analyticsRouter);
 
 // Bitrix24 requires placement.bind's HANDLER to be on the same domain as the app's
 // registered handler URL - so the frontend (a separate Dokploy app/domain) is proxied

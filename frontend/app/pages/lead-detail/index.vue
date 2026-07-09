@@ -2,8 +2,12 @@
 const b24 = useB24()
 const config = useRuntimeConfig()
 
+const step = ref<1 | 2 | 3>(1)
+const loadError = ref('')
+
 const leadId = ref<number | null>(null)
 const leadName = ref('')
+const leadPhone = ref('') // recipient's own WhatsApp number, auto-fetched (read-only, sourced from the CRM Lead)
 
 // Projects are catalog sections (crm.productsection.list), not a custom SPA - confirmed via live
 // discovery. Leaf sections (non-null SECTION_ID) within the product catalog are the projects
@@ -12,21 +16,36 @@ const projects = ref<{ id: number; title: string }[]>([])
 const selectedProjectId = ref<number | null>(null)
 const projectDriveFolderId = ref<number | null>(null) // resolved by name-match once selected
 
+type MessageType = 'contact_now' | 'brochure' | 'video' | 'image' | 'layout'
+const MESSAGE_TYPE_LABELS: Record<MessageType, string> = {
+  contact_now: 'Contact Now',
+  brochure: 'Brochure',
+  video: 'Video',
+  image: 'Image',
+  layout: 'Layout Plan',
+}
+const selectedMessageTypes = ref<MessageType[]>(['contact_now'])
+
 const ctaNumber = ref('')
 const defaultCtaNumber = ref('') // guardrail 8.2: used to flag deviation from the executive's profile default
-const executiveName = ref('') // FR-10/11/12: 3rd body variable (signature line) on every template
+const executiveName = ref('') // default 3rd body variable (signature line)
 
-type DriveFile = { id: number; name: string; type: 'brochure' | 'pdf' | 'video' | 'image' | null }
+// Screen 2 "template editing" - per-send overrides of the 3 approved-template body variables.
+const clientName = ref('')
+const projectText = ref('')
+const executiveSignature = ref('')
+
+type DriveFile = { id: number; name: string; type: Exclude<MessageType, 'contact_now'> | null }
 const files = ref<DriveFile[]>([])
 const selectedFileIds = ref<number[]>([])
 
 const sending = ref(false)
 const results = ref<{ item: string; success: boolean; error?: string }[] | null>(null)
-const loadError = ref('')
 
 const TYPE_BY_KEYWORD: [RegExp, DriveFile['type']][] = [
   [/brochure/i, 'brochure'],
-  [/\.pdf$/i, 'pdf'],
+  [/layout/i, 'layout'],
+  [/\.pdf$/i, 'brochure'],
   [/video|\.mp4$|\.mov$/i, 'video'],
   [/\.(png|jpe?g|gif|webp)$/i, 'image'],
 ]
@@ -53,12 +72,17 @@ onMounted(async () => {
       b24.callMethod('crm.productsection.list', { filter: { CATALOG_ID: config.public.productCatalogId } }),
     ])
 
-    leadName.value = leadRes.getData().result?.NAME || ''
+    const lead = leadRes.getData().result || {}
+    leadName.value = lead.NAME || ''
+    leadPhone.value = lead.PHONE?.[0]?.VALUE || ''
+    clientName.value = leadName.value || 'there'
+
     const user = userRes.getData().result || {}
     const profileCta = user.UF_USR_WHATSAPP_CTA || ''
     ctaNumber.value = profileCta
     defaultCtaNumber.value = profileCta
     executiveName.value = [user.NAME, user.LAST_NAME].filter(Boolean).join(' ')
+    executiveSignature.value = executiveName.value || 'Your Sales Advisor'
 
     const sections = sectionsRes.getData().result || []
     projects.value = sections
@@ -75,6 +99,7 @@ watch(selectedProjectId, async (id) => {
   projectDriveFolderId.value = null
 
   const project = projects.value.find((p) => p.id === id)
+  projectText.value = project?.title || ''
   if (!project || !config.public.projectsDriveRootFolderId) return
 
   // Drive structure isn't organized yet (per project) - once it is, each project's folder
@@ -93,13 +118,63 @@ watch(selectedProjectId, async (id) => {
     .filter((f: DriveFile) => f.type)
 })
 
+const mediaTypesSelected = computed(() => selectedMessageTypes.value.filter((t) => t !== 'contact_now') as DriveFile['type'][])
+
 const filesByType = computed(() => {
-  const groups: Record<string, DriveFile[]> = { brochure: [], pdf: [], video: [], image: [] }
-  for (const f of files.value) if (f.type) groups[f.type].push(f)
+  const groups: Record<string, DriveFile[]> = {}
+  for (const t of mediaTypesSelected.value) groups[t] = []
+  for (const f of files.value) if (f.type && groups[f.type]) groups[f.type].push(f)
   return groups
 })
 
-const canSend = computed(() => selectedFileIds.value.length > 0 && ctaNumber.value.trim().length > 0 && !sending.value)
+const step1Valid = computed(() => selectedProjectId.value !== null && selectedMessageTypes.value.length > 0)
+const step2Valid = computed(() => {
+  const needsFiles = mediaTypesSelected.value.length > 0
+  return ctaNumber.value.trim().length > 0 && (!needsFiles || selectedFileIds.value.length > 0)
+})
+
+function toggleMessageType(type: MessageType, checked: boolean) {
+  selectedMessageTypes.value = checked ? [...selectedMessageTypes.value, type] : selectedMessageTypes.value.filter((t) => t !== type)
+}
+
+function toggleFile(id: number, checked: boolean) {
+  selectedFileIds.value = checked ? [...selectedFileIds.value, id] : selectedFileIds.value.filter((i) => i !== id)
+}
+
+// Preview text mirrors the real approved OnCloud template bodies (WhatsApp *bold* markers kept as-is).
+const PREVIEW_BODY: Record<Exclude<MessageType, never>, string> = {
+  contact_now:
+    'Hi *{{1}}*,\nThank you for your interest in *{{2}}*.\n\nWe will guide you with project details, availability, pricing, payment plans, and the next steps.\nTap below to connect directly.\n\n*{{3}}*\nSales Executive',
+  brochure:
+    'Hi *{{1}}*,\nAs requested, I am sharing the brochure for *{{2}}*. It includes the project overview, layouts, amenities, location details, and key highlights.\nTo Book your Site Visit Today, tap below.\n\n*{{3}}*\nSales Executive',
+  video:
+    'Hi *{{1}}*,\nHere is the construction update for *{{2}}*.\nIt gives you a clearer look at the project update, spaces, lifestyle, and overall experience before your visit.\nTap below to discuss the details and payment plan.\n\n*{{3}}*\nSales Executive',
+  image: '',
+  layout: '',
+}
+const PREVIEW_BUTTON: Record<string, string> = {
+  contact_now: 'Talk to Advisor',
+  brochure: 'Schedule Your Site Visit',
+  video: 'Talk to Advisor',
+}
+
+function renderPreviewBody(type: MessageType) {
+  const template = PREVIEW_BODY[type]
+  if (!template) return '(Template not yet approved by Meta - preview unavailable)'
+  return template
+    .replace('{{1}}', clientName.value || 'there')
+    .replace('{{2}}', projectText.value || 'the project')
+    .replace('{{3}}', executiveSignature.value || 'Your Sales Advisor')
+}
+
+const previewItems = computed(() => {
+  const items: { type: MessageType; label: string; file?: DriveFile }[] = []
+  if (selectedMessageTypes.value.includes('contact_now')) items.push({ type: 'contact_now', label: 'Contact Now (cover image)' })
+  for (const f of files.value) {
+    if (f.type && selectedFileIds.value.includes(f.id)) items.push({ type: f.type, label: f.name, file: f })
+  }
+  return items
+})
 
 async function send() {
   sending.value = true
@@ -110,7 +185,6 @@ async function send() {
       throw new Error('Could not read Bitrix24 auth from the frame - try reloading the tab.')
     }
 
-    const project = projects.value.find((p) => p.id === selectedProjectId.value)
     const selectedFiles = files.value
       .filter((f) => selectedFileIds.value.includes(f.id))
       .map((f) => ({ id: f.id, type: f.type, filename: f.name }))
@@ -122,11 +196,15 @@ async function send() {
         domain: auth.domain,
         accessToken: auth.access_token,
         leadId: leadId.value,
-        projectName: project?.title,
+        projectName: projectText.value,
         projectDriveFolderId: projectDriveFolderId.value,
         ctaNumber: ctaNumber.value,
         defaultCtaNumber: defaultCtaNumber.value,
         executiveName: executiveName.value,
+        clientName: clientName.value,
+        projectText: projectText.value,
+        executiveSignature: executiveSignature.value,
+        includeContactNow: selectedMessageTypes.value.includes('contact_now'),
         files: selectedFiles,
       }),
     })
@@ -140,18 +218,29 @@ async function send() {
     sending.value = false
   }
 }
+
+function startOver() {
+  step.value = 1
+  results.value = null
+  selectedProjectId.value = null
+  selectedMessageTypes.value = ['contact_now']
+}
 </script>
 
 <template>
   <div class="p-4 max-w-xl mx-auto space-y-4">
     <B24Alert v-if="loadError" color="air-primary-alert" :title="loadError" />
 
-    <B24Card>
+    <B24Card v-else>
       <template #header>
-        <h3 class="text-lg font-medium">Send WhatsApp Material</h3>
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-medium">Send WhatsApp Material</h3>
+          <span class="text-xs text-gray-500">Step {{ step }} of 3</span>
+        </div>
       </template>
 
-      <div class="space-y-4">
+      <!-- Screen 1: project, lead number, message types -->
+      <div v-if="step === 1" class="space-y-4">
         <div>
           <label class="block text-sm font-medium mb-1">Project</label>
           <B24Select
@@ -162,35 +251,89 @@ async function send() {
         </div>
 
         <div>
-          <label class="block text-sm font-medium mb-1">Contact Now number</label>
-          <input
-            v-model="ctaNumber"
-            type="text"
-            class="w-full border rounded px-3 py-2"
-            placeholder="+9715xxxxxxxx"
-          />
+          <label class="block text-sm font-medium mb-1">Lead's WhatsApp number</label>
+          <input :value="leadPhone || 'No phone number on this Lead'" type="text" disabled class="w-full border rounded px-3 py-2 bg-gray-50 text-gray-600" />
         </div>
 
-        <div v-if="selectedProjectId" class="space-y-3">
-          <div v-for="(group, type) in filesByType" :key="type">
-            <template v-if="group.length">
-              <div class="text-sm font-medium capitalize mb-1">{{ type }}</div>
-              <div v-for="f in group" :key="f.id" class="flex items-center gap-2">
-                <B24Checkbox
-                  :model-value="selectedFileIds.includes(f.id)"
-                  @update:model-value="
-                    (v) => (selectedFileIds = v ? [...selectedFileIds, f.id] : selectedFileIds.filter((id) => id !== f.id))
-                  "
-                />
-                <span>{{ f.name }}</span>
-              </div>
-            </template>
+        <div>
+          <label class="block text-sm font-medium mb-2">Messages to send</label>
+          <div class="space-y-2">
+            <div v-for="(label, type) in MESSAGE_TYPE_LABELS" :key="type" class="flex items-center gap-2">
+              <B24Checkbox
+                :model-value="selectedMessageTypes.includes(type as MessageType)"
+                @update:model-value="(v) => toggleMessageType(type as MessageType, Boolean(v))"
+              />
+              <span>{{ label }}</span>
+            </div>
           </div>
         </div>
 
-        <B24Button :disabled="!canSend" :loading="sending" @click="send">
-          Send
-        </B24Button>
+        <B24Button :disabled="!step1Valid" @click="step = 2">Next</B24Button>
+
+        <a :href="`${config.public.backendUrl}/analytics`" target="_blank" class="block text-xs text-gray-400 hover:underline">
+          View send analytics (admin only)
+        </a>
+      </div>
+
+      <!-- Screen 2: media pickers, executive number, template variable editing -->
+      <div v-else-if="step === 2" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Sales executive's Contact Now number</label>
+          <input v-model="ctaNumber" type="text" class="w-full border rounded px-3 py-2" placeholder="+9715xxxxxxxx" />
+        </div>
+
+        <div v-if="mediaTypesSelected.length" class="space-y-3">
+          <div v-for="type in mediaTypesSelected" :key="type">
+            <div class="text-sm font-medium mb-1">{{ MESSAGE_TYPE_LABELS[type] }}</div>
+            <div v-if="!filesByType[type]?.length" class="text-sm text-gray-500">No {{ MESSAGE_TYPE_LABELS[type].toLowerCase() }} files found in this project's Drive folder.</div>
+            <div v-for="f in filesByType[type]" :key="f.id" class="flex items-center gap-2">
+              <B24Checkbox :model-value="selectedFileIds.includes(f.id)" @update:model-value="(v) => toggleFile(f.id, Boolean(v))" />
+              <span>{{ f.name }}</span>
+            </div>
+          </div>
+        </div>
+
+        <details class="text-sm">
+          <summary class="cursor-pointer font-medium">Edit message text</summary>
+          <div class="space-y-3 mt-2">
+            <div>
+              <label class="block text-xs font-medium mb-1">Client name</label>
+              <input v-model="clientName" type="text" class="w-full border rounded px-3 py-2" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1">Project reference</label>
+              <input v-model="projectText" type="text" class="w-full border rounded px-3 py-2" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1">Executive signature</label>
+              <input v-model="executiveSignature" type="text" class="w-full border rounded px-3 py-2" />
+            </div>
+          </div>
+        </details>
+
+        <div class="flex gap-2">
+          <B24Button color="air-secondary" @click="step = 1">Back</B24Button>
+          <B24Button :disabled="!step2Valid" @click="step = 3">Next</B24Button>
+        </div>
+      </div>
+
+      <!-- Screen 3: preview + send -->
+      <div v-else class="space-y-4">
+        <div class="space-y-3">
+          <div v-for="(item, i) in previewItems" :key="i" class="border rounded-lg p-3 bg-[#e7ffdb]">
+            <div class="text-xs font-medium text-gray-500 mb-1">{{ item.label }}</div>
+            <div class="whitespace-pre-line text-sm" v-html="renderPreviewBody(item.type).replace(/\*(.+?)\*/g, '<strong>$1</strong>')" />
+            <div v-if="PREVIEW_BUTTON[item.type]" class="mt-2 text-center text-sm text-blue-600 border-t pt-2">
+              {{ PREVIEW_BUTTON[item.type] }}
+            </div>
+          </div>
+          <div v-if="!previewItems.length" class="text-sm text-gray-500">Nothing selected to send.</div>
+        </div>
+
+        <div class="flex gap-2">
+          <B24Button color="air-secondary" :disabled="sending" @click="step = 2">Back</B24Button>
+          <B24Button :disabled="!previewItems.length" :loading="sending" @click="send">Send</B24Button>
+        </div>
 
         <div v-if="results" class="space-y-1">
           <B24Alert
@@ -199,6 +342,7 @@ async function send() {
             :color="r.success ? 'air-primary-success' : 'air-primary-alert'"
             :title="`${r.item}: ${r.success ? 'sent ✓' : `failed ✗ (${r.error})`}`"
           />
+          <B24Button variant="ghost" @click="startOver">Send more to this Lead</B24Button>
         </div>
       </div>
     </B24Card>
