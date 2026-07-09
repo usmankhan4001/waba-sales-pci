@@ -2,7 +2,6 @@
 const b24 = useB24()
 const config = useRuntimeConfig()
 
-const step = ref<1 | 2 | 3>(1)
 const loadError = ref('')
 
 const leadId = ref<number | null>(null)
@@ -30,7 +29,7 @@ const ctaNumber = ref('')
 const defaultCtaNumber = ref('') // guardrail 8.2: used to flag deviation from the executive's profile default
 const executiveName = ref('') // default 3rd body variable (signature line)
 
-// Screen 2 "template editing" - per-send overrides of the 3 approved-template body variables.
+// Per-send overrides of the 3 approved-template body variables.
 const clientName = ref('')
 const projectText = ref('')
 const executiveSignature = ref('')
@@ -127,12 +126,6 @@ const filesByType = computed(() => {
   return groups
 })
 
-const step1Valid = computed(() => selectedProjectId.value !== null && selectedMessageTypes.value.length > 0)
-const step2Valid = computed(() => {
-  const needsFiles = mediaTypesSelected.value.length > 0
-  return ctaNumber.value.trim().length > 0 && (!needsFiles || selectedFileIds.value.length > 0)
-})
-
 function toggleMessageType(type: MessageType, checked: boolean) {
   selectedMessageTypes.value = checked ? [...selectedMessageTypes.value, type] : selectedMessageTypes.value.filter((t) => t !== type)
 }
@@ -142,7 +135,7 @@ function toggleFile(id: number, checked: boolean) {
 }
 
 // Preview text mirrors the real approved OnCloud template bodies (WhatsApp *bold* markers kept as-is).
-const PREVIEW_BODY: Record<Exclude<MessageType, never>, string> = {
+const PREVIEW_BODY: Record<MessageType, string> = {
   contact_now:
     'Hi *{{1}}*,\nThank you for your interest in *{{2}}*.\n\nWe will guide you with project details, availability, pricing, payment plans, and the next steps.\nTap below to connect directly.\n\n*{{3}}*\nSales Executive',
   brochure:
@@ -175,6 +168,8 @@ const previewItems = computed(() => {
   }
   return items
 })
+
+const canSend = computed(() => previewItems.value.length > 0 && ctaNumber.value.trim().length > 0 && !sending.value)
 
 async function send() {
   sending.value = true
@@ -218,13 +213,6 @@ async function send() {
     sending.value = false
   }
 }
-
-function startOver() {
-  step.value = 1
-  results.value = null
-  selectedProjectId.value = null
-  selectedMessageTypes.value = ['contact_now']
-}
 </script>
 
 <template>
@@ -235,12 +223,11 @@ function startOver() {
       <template #header>
         <div class="flex items-center justify-between">
           <h3 class="text-lg font-medium">Send WhatsApp Material</h3>
-          <span class="text-xs text-gray-500">Step {{ step }} of 3</span>
+          <a :href="`${config.public.backendUrl}/analytics`" target="_blank" class="text-xs text-gray-400 hover:underline">Analytics</a>
         </div>
       </template>
 
-      <!-- Screen 1: project, lead number, message types -->
-      <div v-if="step === 1" class="space-y-4">
+      <div class="space-y-5">
         <div>
           <label class="block text-sm font-medium mb-1">Project</label>
           <B24Select
@@ -256,6 +243,11 @@ function startOver() {
         </div>
 
         <div>
+          <label class="block text-sm font-medium mb-1">Sales executive's Contact Now number</label>
+          <input v-model="ctaNumber" type="text" class="w-full border rounded px-3 py-2" placeholder="+9715xxxxxxxx" />
+        </div>
+
+        <div>
           <label class="block text-sm font-medium mb-2">Messages to send</label>
           <div class="space-y-2">
             <div v-for="(label, type) in MESSAGE_TYPE_LABELS" :key="type" class="flex items-center gap-2">
@@ -268,21 +260,7 @@ function startOver() {
           </div>
         </div>
 
-        <B24Button :disabled="!step1Valid" @click="step = 2">Next</B24Button>
-
-        <a :href="`${config.public.backendUrl}/analytics`" target="_blank" class="block text-xs text-gray-400 hover:underline">
-          View send analytics (admin only)
-        </a>
-      </div>
-
-      <!-- Screen 2: media pickers, executive number, template variable editing -->
-      <div v-else-if="step === 2" class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium mb-1">Sales executive's Contact Now number</label>
-          <input v-model="ctaNumber" type="text" class="w-full border rounded px-3 py-2" placeholder="+9715xxxxxxxx" />
-        </div>
-
-        <div v-if="mediaTypesSelected.length" class="space-y-3">
+        <div v-if="selectedProjectId && mediaTypesSelected.length" class="space-y-3">
           <div v-for="type in mediaTypesSelected" :key="type">
             <div class="text-sm font-medium mb-1">{{ MESSAGE_TYPE_LABELS[type] }}</div>
             <div v-if="!filesByType[type]?.length" class="text-sm text-gray-500">No {{ MESSAGE_TYPE_LABELS[type].toLowerCase() }} files found in this project's Drive folder.</div>
@@ -311,15 +289,8 @@ function startOver() {
           </div>
         </details>
 
-        <div class="flex gap-2">
-          <B24Button color="air-secondary" @click="step = 1">Back</B24Button>
-          <B24Button :disabled="!step2Valid" @click="step = 3">Next</B24Button>
-        </div>
-      </div>
-
-      <!-- Screen 3: preview + send -->
-      <div v-else class="space-y-4">
-        <div class="space-y-3">
+        <div v-if="previewItems.length" class="space-y-3">
+          <label class="block text-sm font-medium">Preview</label>
           <div v-for="(item, i) in previewItems" :key="i" class="border rounded-lg p-3 bg-[#e7ffdb]">
             <div class="text-xs font-medium text-gray-500 mb-1">{{ item.label }}</div>
             <div class="whitespace-pre-line text-sm" v-html="renderPreviewBody(item.type).replace(/\*(.+?)\*/g, '<strong>$1</strong>')" />
@@ -327,13 +298,9 @@ function startOver() {
               {{ PREVIEW_BUTTON[item.type] }}
             </div>
           </div>
-          <div v-if="!previewItems.length" class="text-sm text-gray-500">Nothing selected to send.</div>
         </div>
 
-        <div class="flex gap-2">
-          <B24Button color="air-secondary" :disabled="sending" @click="step = 2">Back</B24Button>
-          <B24Button :disabled="!previewItems.length" :loading="sending" @click="send">Send</B24Button>
-        </div>
+        <B24Button :disabled="!canSend" :loading="sending" @click="send">Send</B24Button>
 
         <div v-if="results" class="space-y-1">
           <B24Alert
@@ -342,7 +309,6 @@ function startOver() {
             :color="r.success ? 'air-primary-success' : 'air-primary-alert'"
             :title="`${r.item}: ${r.success ? 'sent ✓' : `failed ✗ (${r.error})`}`"
           />
-          <B24Button variant="ghost" @click="startOver">Send more to this Lead</B24Button>
         </div>
       </div>
     </B24Card>
