@@ -21,14 +21,22 @@ const MEDIA_TEMPLATES = {
   layout: { name: 'send_layout_plan_sales_pci', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
 };
 
+// disk.file.getExternalLink returns an HTML preview/player page (confirmed live: Content-Type
+// text/html), not the raw file - Meta's servers can't fetch that as media. disk.file.get's
+// DOWNLOAD_URL is the actual direct-download link with the correct binary content-type.
+async function resolveFileDownloadUrl(domain, accessToken, fileId) {
+  const fileResp = await callMethodWithToken(domain, 'disk.file.get', { id: fileId }, accessToken);
+  return fileResp.result?.DOWNLOAD_URL;
+}
+
 /** FR-17: project's Drive cover image if one exists, else the fixed default brand cover. */
 async function resolveCoverImageLink(domain, accessToken, projectDriveFolderId) {
   if (projectDriveFolderId) {
     const childrenResp = await callMethodWithToken(domain, 'disk.folder.getchildren', { id: projectDriveFolderId }, accessToken);
     const cover = (childrenResp.result || []).find((c) => c.TYPE === 'file' && /cover/i.test(c.NAME));
     if (cover) {
-      const linkResp = await callMethodWithToken(domain, 'disk.file.getExternalLink', { id: cover.ID }, accessToken);
-      if (linkResp.result) return linkResp.result;
+      const link = await resolveFileDownloadUrl(domain, accessToken, cover.ID);
+      if (link) return link;
     }
   }
   return config.defaultCoverImageUrl;
@@ -165,9 +173,8 @@ router.post('/', async (req, res) => {
         if (approvedNames.size && !approvedNames.has(mapping.name)) {
           throw new Error(`${mapping.name} template is not in approved state`);
         }
-        // Read-only shareable link, per guardrail 8.2 (not an editable Drive link)
-        const linkResp = await callMethodWithToken(domain, 'disk.file.getExternalLink', { id: file.id }, accessToken);
-        const link = linkResp.result;
+        // Direct-download link (not the HTML preview page), per guardrail 8.2 - read-only, not editable.
+        const link = await resolveFileDownloadUrl(domain, accessToken, file.id);
         if (!link) throw new Error('Could not resolve a shareable Drive link for this file');
 
         await oncloud.sendTemplateMessage({
