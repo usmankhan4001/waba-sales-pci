@@ -11,13 +11,13 @@ const analyticsLog = require('../store/analyticsLog');
 const router = express.Router();
 router.use(express.json());
 
-// Real approved OnCloud template names (FR-9/10/11/12) - generic names.
-const CONTACT_NOW_TEMPLATE = 'contact_now';
+// Real approved OnCloud template names in this OnCloud account.
+const CONTACT_NOW_TEMPLATE = 'contact_now_sales_pci';
 const MEDIA_TEMPLATES = {
-  brochure: { name: 'brochure', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
-  video: { name: 'video', build: (file) => oncloud.videoHeaderComponent(file.link) },
-  image: { name: 'contact_now', build: (file) => oncloud.imageHeaderComponent(file.link) },
-  layout: { name: 'brochure', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
+  brochure: { name: 'send_brochure_doc_sales_pci', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
+  video: { name: 'send_project_video_sales_pci', build: (file) => oncloud.videoHeaderComponent(file.link) },
+  image: { name: 'send_project_image_sales_pci', build: (file) => oncloud.imageHeaderComponent(file.link) },
+  layout: { name: 'send_layout_plan_sales_pci', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
 };
 
 // We generate a short-lived proxy token mapped to this file.
