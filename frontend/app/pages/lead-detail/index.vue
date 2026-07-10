@@ -230,155 +230,170 @@ async function send() {
 </script>
 
 <template>
-  <div class="h-screen flex flex-col bg-gray-50 overflow-hidden text-sm">
+  <div class="h-screen flex flex-col bg-white overflow-hidden text-sm font-sans">
     <B24Alert v-if="loadError" color="air-primary-alert" :title="loadError" class="m-4" />
     
     <div v-else class="flex flex-1 overflow-hidden">
       <!-- Left Pane: Configuration -->
       <div class="w-1/2 flex flex-col border-r bg-white overflow-y-auto">
-        <div class="px-5 py-4 border-b flex justify-between items-center bg-gray-50 sticky top-0 z-10 shadow-sm">
+        <div class="px-6 py-4 flex justify-between items-center bg-white sticky top-0 z-10 border-b">
           <div>
-            <h2 class="text-lg font-semibold text-gray-800">Send WhatsApp Material</h2>
+            <h2 class="text-lg font-medium text-gray-900">Send WhatsApp Material</h2>
           </div>
-          <B24Button :to="`${config.public.backendUrl}/analytics`" target="_blank" color="primary" variant="light" size="sm">Analytics</B24Button>
+          <B24Button :to="`${config.public.backendUrl}/analytics`" target="_blank" color="link" size="sm" class="text-gray-500">Analytics</B24Button>
         </div>
         
-        <div class="p-4 space-y-4 bg-gray-50/50">
+        <div class="px-6 py-4 space-y-6">
           <!-- Step 1: Project & Contact -->
-          <B24Card class="shadow-sm">
-            <template #header>
-              <div class="flex items-center gap-2 font-medium text-gray-800 text-sm">
-                <span class="bg-blue-100 text-blue-700 w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span> Project & Contact
-              </div>
-            </template>
-            <div class="grid grid-cols-3 gap-3">
-              <B24FormField label="Select Project" class="col-span-3">
+          <section>
+            <h3 class="font-semibold text-gray-800 mb-3 text-sm flex items-center gap-2">
+              <span class="bg-gray-100 text-gray-600 w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span> 
+              Project & Contact
+            </h3>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-3 pl-7">
+              <div class="col-span-2">
+                <label class="block text-xs font-medium text-gray-500 mb-1">Select Project</label>
                 <B24Select
                   v-model="selectedProjectId"
                   :items="projects.map((p) => ({ label: p.title, value: p.id }))"
                   placeholder="Choose a project from Drive"
                   class="w-full"
                 />
-              </B24FormField>
-              <B24FormField label="Lead WhatsApp" class="col-span-1">
-                <B24Input :model-value="leadPhone || 'No phone number'" disabled />
-              </B24FormField>
-              <B24FormField label="Your Contact Number" class="col-span-2">
-                <B24Input v-model="ctaNumber" placeholder="+9715xxxxxxxx" />
-              </B24FormField>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Lead WhatsApp</label>
+                <B24Input :model-value="leadPhone || 'No phone number'" disabled class="w-full bg-gray-50" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Your Contact Number</label>
+                <B24Input v-model="ctaNumber" placeholder="+9715xxxxxxxx" class="w-full" />
+              </div>
             </div>
-          </B24Card>
+          </section>
+
+          <hr class="border-gray-100" />
 
           <!-- Step 2: Content Selection -->
-          <B24Card class="shadow-sm">
-            <template #header>
-              <div class="flex items-center gap-2 font-medium text-gray-800 text-sm">
-                <span class="bg-blue-100 text-blue-700 w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span> Select Content
-              </div>
-            </template>
-            <div class="space-y-3">
+          <section>
+            <h3 class="font-semibold text-gray-800 mb-3 text-sm flex items-center gap-2">
+              <span class="bg-gray-100 text-gray-600 w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span> 
+              Select Content
+            </h3>
+            <div class="pl-7 space-y-3">
               <div class="flex flex-wrap gap-2">
-                <label v-for="(label, type) in MESSAGE_TYPE_LABELS" :key="type" class="flex items-center px-3 py-1.5 border rounded-lg cursor-pointer hover:bg-gray-50 transition text-xs" :class="{'border-blue-500 bg-blue-50': selectedMessageTypes.includes(type as MessageType)}">
-                  <B24Checkbox
-                    :model-value="selectedMessageTypes.includes(type as MessageType)"
-                    @update:model-value="(v) => toggleMessageType(type as MessageType, Boolean(v))"
-                    class="mr-2"
+                <label v-for="(label, type) in MESSAGE_TYPE_LABELS" :key="type" class="flex items-center px-3 py-1.5 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 transition text-xs select-none" :class="{'border-blue-400 bg-blue-50/30 text-blue-700': selectedMessageTypes.includes(type as MessageType)}">
+                  <input 
+                    type="checkbox" 
+                    :checked="selectedMessageTypes.includes(type as MessageType)" 
+                    @change="(e) => toggleMessageType(type as MessageType, (e.target as HTMLInputElement).checked)"
+                    class="mr-2 accent-blue-600"
                   />
-                  <span class="font-medium text-gray-700">{{ label }}</span>
+                  <span class="font-medium">{{ label }}</span>
                 </label>
               </div>
 
-              <B24Alert v-if="fileLoadError" color="air-primary-alert" :title="fileLoadError" />
+              <B24Alert v-if="fileLoadError" color="air-primary-alert" :title="fileLoadError" class="py-1 mt-2" />
 
-              <div v-if="selectedProjectId && mediaTypesSelected.length" class="mt-2 space-y-3 bg-gray-50 p-3 rounded-lg border">
-                <div v-for="type in mediaTypesSelected" :key="type" class="space-y-1">
-                  <div class="font-medium text-gray-600 text-[10px] uppercase tracking-wider">{{ MESSAGE_TYPE_LABELS[type] }}</div>
+              <div v-if="selectedProjectId && mediaTypesSelected.length" class="mt-3 bg-gray-50 border border-gray-100 rounded-md p-3">
+                <div v-for="type in mediaTypesSelected" :key="type" class="mb-3 last:mb-0">
+                  <div class="font-semibold text-gray-500 text-[10px] uppercase tracking-wider mb-1">{{ MESSAGE_TYPE_LABELS[type] }}</div>
                   <div v-if="!filesByType[type]?.length" class="text-gray-400 italic text-xs">No files found.</div>
-                  <div v-for="f in filesByType[type]" :key="f.id" class="flex items-center gap-2 text-xs">
-                    <B24Checkbox :model-value="selectedFileIds.includes(f.id)" @update:model-value="(v) => toggleFile(f.id, Boolean(v))" />
+                  <div v-for="f in filesByType[type]" :key="f.id" class="flex items-center gap-2 text-xs py-0.5">
+                    <input type="checkbox" :checked="selectedFileIds.includes(f.id)" @change="(e) => toggleFile(f.id, (e.target as HTMLInputElement).checked)" class="accent-blue-600 cursor-pointer" />
                     <span class="text-gray-700 truncate" :title="f.name">{{ f.name }}</span>
                   </div>
                 </div>
               </div>
             </div>
-          </B24Card>
+          </section>
+
+          <hr class="border-gray-100" />
 
           <!-- Step 3: Message Customization -->
-          <B24Card class="shadow-sm">
-            <template #header>
-              <div class="flex items-center gap-2 font-medium text-gray-800 text-sm">
-                <span class="bg-blue-100 text-blue-700 w-5 h-5 rounded-full flex items-center justify-center text-xs">3</span> Customize Message
+          <section>
+            <h3 class="font-semibold text-gray-800 mb-3 text-sm flex items-center gap-2">
+              <span class="bg-gray-100 text-gray-600 w-5 h-5 rounded-full flex items-center justify-center text-xs">3</span> 
+              Customize Message
+            </h3>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-3 pl-7">
+              <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Client Name</label>
+                <B24Input v-model="clientName" class="w-full" />
               </div>
-            </template>
-            <div class="grid grid-cols-2 gap-3">
-              <B24FormField label="Client Name">
-                <B24Input v-model="clientName" />
-              </B24FormField>
-              <B24FormField label="Project Reference">
-                <B24Input v-model="projectText" />
-              </B24FormField>
-              <B24FormField label="Executive Signature" class="col-span-2">
-                <B24Input v-model="executiveSignature" />
-              </B24FormField>
+              <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Project Reference</label>
+                <B24Input v-model="projectText" class="w-full" />
+              </div>
+              <div class="col-span-2">
+                <label class="block text-xs font-medium text-gray-500 mb-1">Executive Signature</label>
+                <B24Input v-model="executiveSignature" class="w-full" />
+              </div>
             </div>
-          </B24Card>
+          </section>
         </div>
       </div>
 
       <!-- Right Pane: WhatsApp Preview -->
       <div class="w-1/2 flex flex-col bg-[#efeae2] relative overflow-hidden">
         <!-- Chat Header -->
-        <div class="bg-[#f0f2f5] px-4 py-3 border-b border-gray-300 flex items-center gap-3 z-10">
-          <div class="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center text-white font-bold text-lg overflow-hidden">
-            <svg class="w-full h-full text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        <div class="bg-[#f0f2f5] px-4 py-2.5 border-b border-gray-200 flex items-center gap-3 z-10 shrink-0">
+          <div class="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center text-white overflow-hidden">
+            <svg class="w-6 h-6 text-gray-100 mt-1" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
           </div>
           <div>
-            <div class="font-medium text-gray-900">{{ leadName || 'Client' }}</div>
-            <div class="text-xs text-gray-500">{{ leadPhone || 'No phone number' }}</div>
+            <div class="font-medium text-[#111b21] text-[15px] leading-tight">{{ leadName || 'Client' }}</div>
+            <div class="text-[13px] text-[#667781] leading-tight">{{ leadPhone || 'No phone number' }}</div>
           </div>
         </div>
 
-        <!-- Chat Background Pattern (Subtle) -->
-        <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: url('https://waba-bitrix.premierchoiceint.online/static/whatsapp-bg.png'); background-size: cover; mix-blend-mode: multiply;"></div>
+        <!-- Chat Background Pattern -->
+        <div class="absolute inset-0 opacity-[0.06] pointer-events-none z-0" style="background-image: url('https://waba-bitrix.premierchoiceint.online/static/whatsapp-bg.png'); background-size: 400px; background-repeat: repeat;"></div>
 
         <!-- Messages Area -->
-        <div class="flex-1 overflow-y-auto p-4 space-y-4 z-10 relative">
-          <div v-if="!previewItems.length" class="flex justify-center mt-10">
-            <div class="bg-[#fff9c4] text-gray-700 px-4 py-2 rounded-lg shadow-sm text-center text-xs max-w-sm">
-              Select content on the left to see the WhatsApp preview here.
+        <div class="flex-1 overflow-y-auto p-4 md:p-8 space-y-3 z-10 relative flex flex-col">
+          <div v-if="!previewItems.length" class="flex justify-center mt-4">
+            <div class="bg-[#ffeecd] text-[#54656f] px-3 py-1.5 rounded-md shadow-sm text-center text-xs max-w-sm">
+              Select content on the left to see the preview.
             </div>
           </div>
 
           <!-- Message Bubbles -->
           <div v-for="(item, i) in previewItems" :key="i" class="flex justify-start">
-            <div class="bg-white rounded-lg shadow-sm max-w-[85%] overflow-hidden relative pb-1">
+            <div class="bg-white rounded-lg rounded-tl-none shadow-sm max-w-[330px] overflow-hidden relative pb-1 border border-gray-100">
+              <!-- Tail SVG -->
+              <svg viewBox="0 0 8 13" width="8" height="13" class="absolute top-0 -left-[8px] text-white fill-current">
+                <path opacity=".13" d="M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z"></path>
+                <path fill="currentColor" d="M5.188 0H0v11.193l6.467-8.625C7.526 1.156 6.958 0 5.188 0z"></path>
+              </svg>
+
               <!-- Media Header Preview -->
-              <div class="bg-gray-200 h-32 w-full flex items-center justify-center mb-2 relative group">
+              <div class="bg-[#f0f2f5] h-[160px] w-full flex items-center justify-center mb-1 relative group">
                 <div v-if="item.type === 'video'" class="absolute inset-0 flex items-center justify-center">
-                  <div class="w-12 h-12 bg-black bg-opacity-50 rounded-full flex items-center justify-center backdrop-blur-sm">
+                  <div class="w-12 h-12 bg-black bg-opacity-40 rounded-full flex items-center justify-center backdrop-blur-sm">
                     <svg class="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                   </div>
                 </div>
-                <div v-else-if="item.type === 'brochure' || item.type === 'layout'" class="absolute inset-0 flex flex-col items-center justify-center text-red-500">
-                   <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5c0 .8-.7 1.5-1.5 1.5H7v2H5.5V9H8c.8 0 1.5.7 1.5 1.5v1zM13 14c0 .8-.7 1.5-1.5 1.5H9.5V9H11.5c.8 0 1.5.7 1.5 1.5v3.5zm5.5-1.5h-2.5V14h-1.5V9H18.5v1.5h-2.5v1h2.5v1z"/></svg>
-                   <span class="text-xs font-bold mt-1 text-gray-600 px-2 truncate w-full text-center">{{ item.label }}</span>
+                <div v-else-if="item.type === 'brochure' || item.type === 'layout'" class="absolute inset-0 flex flex-col items-center justify-center text-[#ff5252]">
+                   <svg class="w-12 h-12 mb-1" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5c0 .8-.7 1.5-1.5 1.5H7v2H5.5V9H8c.8 0 1.5.7 1.5 1.5v1zM13 14c0 .8-.7 1.5-1.5 1.5H9.5V9H11.5c.8 0 1.5.7 1.5 1.5v3.5zm5.5-1.5h-2.5V14h-1.5V9H18.5v1.5h-2.5v1h2.5v1z"/></svg>
+                   <span class="text-[11px] font-bold text-[#54656f] px-4 truncate w-full text-center">{{ item.label }}</span>
                 </div>
-                <div v-else class="text-gray-400">
+                <div v-else class="text-[#aebac1]">
                   <svg class="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
                 </div>
               </div>
               
               <!-- Message Text -->
-              <div class="px-3 pb-2 pt-1 text-[#111b21] whitespace-pre-wrap leading-relaxed text-[14px]">
+              <div class="px-2.5 pb-2 pt-1 text-[#111b21] whitespace-pre-wrap leading-[1.35] text-[14px]">
                 <template v-for="(seg, si) in renderPreviewSegments(item.type)" :key="si">
                   <strong v-if="seg.bold" class="font-bold">{{ seg.text }}</strong>
                   <template v-else>{{ seg.text }}</template>
                 </template>
+                <div class="float-right text-[11px] text-[#667781] mt-1 ml-2 select-none">12:00</div>
               </div>
 
               <!-- Button -->
-              <div v-if="PREVIEW_BUTTON[item.type]" class="border-t border-gray-100 mt-1">
-                <div class="py-3 text-center text-[#00a884] font-medium flex items-center justify-center gap-2 hover:bg-gray-50 transition cursor-pointer">
+              <div v-if="PREVIEW_BUTTON[item.type]" class="border-t border-[#f0f2f5]">
+                <div class="py-2.5 text-center text-[#00a884] font-medium flex items-center justify-center gap-2 hover:bg-[#f5f6f6] transition cursor-pointer text-[14px]">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                   {{ PREVIEW_BUTTON[item.type] }}
                 </div>
@@ -387,36 +402,32 @@ async function send() {
           </div>
         </div>
 
-        <!-- Bottom Action Bar -->
-        <div class="bg-[#f0f2f5] p-4 border-t border-gray-300 z-10 flex flex-col shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-          <div v-if="results" class="mb-3 space-y-2 max-h-32 overflow-y-auto pr-2">
-            <B24Alert
-              v-for="(r, i) in results"
-              :key="i"
-              :color="r.success ? 'air-primary-success' : 'air-primary-alert'"
-              :title="`${r.item}: ${r.success ? 'Sent ✓' : `Failed ✗ (${r.error})`}`"
-              class="py-1"
-            />
+        <!-- WhatsApp-style Bottom Action Bar -->
+        <div class="bg-[#f0f2f5] px-4 py-3 z-10 shrink-0">
+          <div v-if="results" class="mb-3 space-y-1.5 max-h-24 overflow-y-auto">
+            <div v-for="(r, i) in results" :key="i" class="text-xs px-3 py-2 rounded-md shadow-sm border" :class="r.success ? 'bg-[#d1f4cc] text-[#111b21] border-[#c0e0bc]' : 'bg-red-50 text-red-700 border-red-100'">
+              <strong>{{ r.item }}:</strong> {{ r.success ? 'Sent successfully ✓' : `Failed ✗ (${r.error})` }}
+            </div>
           </div>
           
-          <B24Button 
-            class="w-full py-3 text-base shadow-sm bg-[#00a884] hover:bg-[#008f6f] text-white font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-            :disabled="!canSend" 
-            :loading="sending" 
-            @click="send"
-          >
-            <span v-if="sending" class="flex items-center justify-center gap-2">
-              <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <div class="flex items-center gap-3">
+            <div class="bg-white flex-1 rounded-lg px-4 py-2.5 text-[#54656f] flex items-center shadow-sm">
+              <span class="truncate">{{ previewItems.length }} item(s) ready to send to {{ leadName || 'Client' }}</span>
+            </div>
+            
+            <button 
+              class="w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition shadow-sm outline-none"
+              :class="canSend ? 'bg-[#00a884] hover:bg-[#008f6f] text-white cursor-pointer' : 'bg-gray-300 text-gray-100 cursor-not-allowed'"
+              :disabled="!canSend || sending" 
+              @click="send"
+            >
+              <svg v-if="sending" class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              Sending to WhatsApp...
-            </span>
-            <span v-else class="flex items-center justify-center gap-2">
-              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-              Send to {{ leadName || 'Client' }}
-            </span>
-          </B24Button>
+              <svg v-else class="w-6 h-6 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+          </div>
         </div>
       </div>
     </div>
