@@ -109,7 +109,11 @@ router.post('/', async (req, res) => {
     const lead = leadResp.result;
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
-    const phone = lead.PHONE?.[0]?.VALUE;
+    // Bitrix24 stores phones in an array. Prioritize finding the MOBILE phone first.
+    const phones = lead.PHONE || [];
+    const bestPhone = phones.find((p) => p.VALUE_TYPE === 'MOBILE') || phones.find((p) => p.VALUE_TYPE === 'WORK') || phones[0];
+    const phone = bestPhone?.VALUE;
+    
     if (!phone) return res.status(400).json({ error: 'Lead has no phone number' });
 
     const responsibleId = lead.ASSIGNED_BY_ID;

@@ -69,7 +69,12 @@ onMounted(async () => {
 
     const lead = leadRes.getData().result || {}
     leadName.value = lead.NAME || ''
-    leadPhone.value = lead.PHONE?.[0]?.VALUE || ''
+    
+    // Bitrix24 stores phones in an array. Prioritize finding the MOBILE phone first.
+    const phones = lead.PHONE || []
+    const bestPhone = phones.find((p: any) => p.VALUE_TYPE === 'MOBILE') || phones.find((p: any) => p.VALUE_TYPE === 'WORK') || phones[0]
+    leadPhone.value = bestPhone?.VALUE || ''
+    
     clientName.value = leadName.value || 'there'
 
     const user = userRes.getData().result || {}
