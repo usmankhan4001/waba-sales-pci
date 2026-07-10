@@ -42,26 +42,21 @@ async function resolveCoverImageLink(domain, accessToken, projectDriveFolderId) 
 }
 
 /** One CRM Activity per item, so the activity panel shows each media message individually. */
-async function logActivity(domain, accessToken, { leadId, responsibleId, subject, description, phone }) {
+async function logActivity(domain, accessToken, { leadId, entityTypeId, responsibleId, subject, description, phone }) {
   await callMethodWithToken(
     domain,
     'crm.activity.add',
     {
       fields: {
-        OWNER_TYPE_ID: 1, // Lead
+        OWNER_TYPE_ID: entityTypeId,
         OWNER_ID: leadId,
-        // TYPE_ID 4 is actually "E-mail" (confirmed via crm.enum.activitytype) and TYPE_ID 5
-        // ("Activity") isn't a valid context for crm.activity.add - 2 ("Call") is the closest
-        // built-in channel type that accepts a phone COMMUNICATIONS entry, confirmed live.
         TYPE_ID: 2,
         SUBJECT: subject,
         DESCRIPTION: description,
         DESCRIPTION_TYPE: 1,
         RESPONSIBLE_ID: responsibleId,
         COMPLETED: 'Y',
-        // Required field for this activity type - without it Bitrix rejects with
-        // "The field COMMUNICATIONS is not defined or invalid." (confirmed live).
-        COMMUNICATIONS: phone ? [{ VALUE: phone, ENTITY_ID: leadId, ENTITY_TYPE_ID: 1 }] : undefined,
+        COMMUNICATIONS: phone ? [{ VALUE: phone, ENTITY_ID: leadId, ENTITY_TYPE_ID: entityTypeId }] : undefined,
       },
     },
     accessToken
@@ -84,6 +79,7 @@ router.post('/', async (req, res) => {
     domain,
     accessToken,
     leadId,
+    entityTypeId = 1,
     projectName,
     projectDriveFolderId,
     ctaNumber,
@@ -101,27 +97,37 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    // Lead + approved-templates fetch don't depend on each other - run concurrently.
-    const [leadResp, approvedTemplates] = await Promise.all([
-      callMethodWithToken(domain, 'crm.lead.get', { id: leadId }, accessToken),
+    let endpoint = 'crm.lead.get';
+    if (entityTypeId === 2) endpoint = 'crm.deal.get';
+    else if (entityTypeId === 3) endpoint = 'crm.contact.get';
+
+    const [entityResp, approvedTemplates] = await Promise.all([
+      callMethodWithToken(domain, endpoint, { id: leadId }, accessToken),
       oncloud.getTemplates(),
     ]);
-    const lead = leadResp.result;
-    if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    const entityData = entityResp.result;
+    if (!entityData) return res.status(404).json({ error: 'CRM record not found' });
 
-    // Bitrix24 stores phones in an array. Prioritize finding the MOBILE phone first.
-    const phones = lead.PHONE || [];
+    let phones = entityData.PHONE || [];
+    if (!phones.length && entityData.CONTACT_ID) {
+      try {
+        const contactResp = await callMethodWithToken(domain, 'crm.contact.get', { id: entityData.CONTACT_ID }, accessToken);
+        phones = contactResp.result?.PHONE || [];
+      } catch (e) {}
+    }
+
     const bestPhone = phones.find((p) => p.VALUE_TYPE === 'MOBILE') || phones.find((p) => p.VALUE_TYPE === 'WORK') || phones[0];
     const phone = bestPhone?.VALUE;
     
-    if (!phone) return res.status(400).json({ error: 'Lead has no phone number' });
+    if (!phone) return res.status(400).json({ error: 'CRM record has no phone number' });
 
-    const responsibleId = lead.ASSIGNED_BY_ID;
+    const responsibleId = entityData.ASSIGNED_BY_ID;
 
     // Guardrail 8.1: opt-out - suppressed leads are skipped entirely, but we still log why.
     if (suppressionList.isSuppressed(phone)) {
       await logActivity(domain, accessToken, {
         leadId,
+        entityTypeId,
         responsibleId,
         phone,
         subject: `WhatsApp material NOT sent — ${projectName || 'project'}`,
@@ -230,6 +236,7 @@ router.post('/', async (req, res) => {
         try {
           await logActivity(domain, accessToken, {
             leadId,
+            entityTypeId,
             responsibleId,
             phone,
             subject: `WhatsApp ${label} — ${r.success ? 'sent' : 'failed'} (${projectName || 'project'})`,

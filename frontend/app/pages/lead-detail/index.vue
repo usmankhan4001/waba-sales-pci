@@ -51,27 +51,64 @@ function classify(name: string): DriveFile['type'] {
   return hit ? hit[1] : null
 }
 
+const entityTypeIdRef = ref<number>(1)
+
 onMounted(async () => {
   try {
     const options = b24.placement.options as Record<string, any>
     leadId.value = Number(options?.ID ?? options?.ENTITY_ID)
 
     if (!leadId.value || Number.isNaN(leadId.value)) {
-      loadError.value = 'Could not determine which Lead this tab belongs to.'
+      loadError.value = 'Could not determine which CRM record this tab belongs to.'
       return
     }
 
-    const [leadRes, userRes, rootRes] = await Promise.all([
-      b24.callMethod('crm.lead.get', { id: leadId.value }),
+    let placementStr = ''
+    try {
+      placementStr = String((b24.placement.info as any)?.placement || options?.PLACEMENT || '').toUpperCase()
+    } catch (e) {
+      placementStr = String(options?.PLACEMENT || '').toUpperCase()
+    }
+
+    let entityTypeId = 1
+    let endpoint = 'crm.lead.get'
+
+    if (placementStr.includes('DEAL')) {
+      entityTypeId = 2
+      endpoint = 'crm.deal.get'
+    } else if (placementStr.includes('CONTACT')) {
+      entityTypeId = 3
+      endpoint = 'crm.contact.get'
+    }
+    
+    entityTypeIdRef.value = entityTypeId
+
+    const [entityRes, userRes, rootRes] = await Promise.all([
+      b24.callMethod(endpoint, { id: leadId.value }),
       b24.callMethod('user.current', {}),
       b24.callMethod('disk.folder.getchildren', { id: Number(config.public.projectsDriveRootFolderId) }),
     ])
 
-    const lead = leadRes.getData().result || {}
-    leadName.value = lead.NAME || ''
+    const entityData = entityRes.getData().result || {}
+    leadName.value = [entityData.NAME, entityData.LAST_NAME].filter(Boolean).join(' ') || entityData.TITLE || ''
     
-    // Bitrix24 stores phones in an array. Prioritize finding the MOBILE phone first.
-    const phones = lead.PHONE || []
+    let phones = entityData.PHONE || []
+    
+    // If no phones and it has a CONTACT_ID (like in Deals), fetch the contact's phone
+    if (!phones.length && entityData.CONTACT_ID) {
+      try {
+        const contactRes = await b24.callMethod('crm.contact.get', { id: entityData.CONTACT_ID })
+        const contactData = contactRes.getData().result || {}
+        phones = contactData.PHONE || []
+        
+        // Use contact name if entity doesn't have a specific name
+        if (!leadName.value || leadName.value === entityData.TITLE) {
+          const cName = [contactData.NAME, contactData.LAST_NAME].filter(Boolean).join(' ')
+          if (cName) leadName.value = cName
+        }
+      } catch (e) {}
+    }
+
     const bestPhone = phones.find((p: any) => p.VALUE_TYPE === 'MOBILE') || phones.find((p: any) => p.VALUE_TYPE === 'WORK') || phones[0]
     leadPhone.value = bestPhone?.VALUE || ''
     
@@ -205,6 +242,7 @@ async function send() {
         domain: auth.domain,
         accessToken: auth.access_token,
         leadId: leadId.value,
+        entityTypeId: entityTypeIdRef.value,
         projectName: projectText.value,
         projectDriveFolderId: selectedProjectId.value,
         ctaNumber: ctaNumber.value,
