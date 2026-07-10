@@ -51,6 +51,51 @@ function classify(name: string): DriveFile['type'] {
   return hit ? hit[1] : null
 }
 
+function normalizePhones(rawPhones: any): any[] {
+  if (Array.isArray(rawPhones)) return rawPhones
+  if (!rawPhones || typeof rawPhones !== 'object') return []
+  return Object.values(rawPhones).filter(Boolean)
+}
+
+function pickBestPhone(phones: any[]) {
+  return phones.find((p: any) => p.VALUE_TYPE === 'MOBILE') || phones.find((p: any) => p.VALUE_TYPE === 'WORK') || phones[0] || null
+}
+
+async function resolveEntityPhones(entityData: Record<string, any>) {
+  let phones = normalizePhones(entityData.PHONE)
+
+  if (phones.length === 0 && entityData.FM?.PHONE) {
+    phones = normalizePhones(entityData.FM.PHONE)
+  }
+
+  const candidateContactIds = [
+    entityData.CONTACT_ID,
+    ...(Array.isArray(entityData.CONTACT_IDS) ? entityData.CONTACT_IDS : []),
+    ...(Array.isArray(entityData.CONTACT_BINDINGS) ? entityData.CONTACT_BINDINGS.map((binding: any) => binding.CONTACT_ID) : []),
+  ].filter(Boolean)
+
+  for (const contactId of candidateContactIds) {
+    if (phones.length > 0) break
+    try {
+      const contactRes = await b24.callMethod('crm.contact.get', { id: contactId })
+      const contactData = contactRes.getData().result || {}
+      phones = normalizePhones(contactData.PHONE)
+      if (phones.length === 0 && contactData.FM?.PHONE) {
+        phones = normalizePhones(contactData.FM.PHONE)
+      }
+
+      if (!leadName.value || leadName.value === entityData.TITLE) {
+        const contactName = [contactData.NAME, contactData.LAST_NAME].filter(Boolean).join(' ')
+        if (contactName) leadName.value = contactName
+      }
+    } catch (e: any) {
+      console.warn(`Failed to fetch linked contact ${contactId}:`, e)
+    }
+  }
+
+  return phones
+}
+
 const entityTypeIdRef = ref<number>(1)
 
 onMounted(async () => {
@@ -92,45 +137,8 @@ onMounted(async () => {
     const entityData = entityRes.getData().result || {}
     leadName.value = [entityData.NAME, entityData.LAST_NAME].filter(Boolean).join(' ') || entityData.TITLE || ''
     
-    let phones = Array.isArray(entityData.PHONE) ? entityData.PHONE : []
-    
-    // If no valid phones found on the entity itself, check for a linked contact
-    if (phones.length === 0 && entityData.CONTACT_ID) {
-      try {
-        const contactRes = await b24.callMethod('crm.contact.get', { id: entityData.CONTACT_ID })
-        const contactData = contactRes.getData().result || {}
-        if (Array.isArray(contactData.PHONE)) {
-          phones = contactData.PHONE
-        }
-        
-        // Use contact name if entity doesn't have a specific person name
-        if (!leadName.value || leadName.value === entityData.TITLE) {
-          const cName = [contactData.NAME, contactData.LAST_NAME].filter(Boolean).join(' ')
-          if (cName) leadName.value = cName
-        }
-      } catch (e: any) {
-        console.warn('Failed to fetch linked contact:', e)
-      }
-    }
-
-    // Sometimes the contact is bound through CONTACT_BINDINGS instead of CONTACT_ID
-    if (phones.length === 0 && Array.isArray(entityData.CONTACT_BINDINGS) && entityData.CONTACT_BINDINGS.length > 0) {
-      try {
-        const contactRes = await b24.callMethod('crm.contact.get', { id: entityData.CONTACT_BINDINGS[0].CONTACT_ID })
-        const contactData = contactRes.getData().result || {}
-        if (Array.isArray(contactData.PHONE)) {
-          phones = contactData.PHONE
-        }
-        if (!leadName.value || leadName.value === entityData.TITLE) {
-          const cName = [contactData.NAME, contactData.LAST_NAME].filter(Boolean).join(' ')
-          if (cName) leadName.value = cName
-        }
-      } catch (e: any) {
-        console.warn('Failed to fetch bound contact:', e)
-      }
-    }
-
-    const bestPhone = phones.find((p: any) => p.VALUE_TYPE === 'MOBILE') || phones.find((p: any) => p.VALUE_TYPE === 'WORK') || phones[0]
+    const phones = await resolveEntityPhones(entityData)
+    const bestPhone = pickBestPhone(phones)
     leadPhone.value = bestPhone?.VALUE || ''
     
     clientName.value = leadName.value || 'there'
@@ -406,7 +414,7 @@ async function send() {
         </div>
 
         <!-- Chat Background Pattern -->
-        <div class="absolute inset-0 opacity-[0.06] pointer-events-none z-0" style="background-image: url('https://waba-bitrix.premierchoiceint.online/static/whatsapp-bg.png'); background-size: 400px; background-repeat: repeat;"></div>
+        <div class="absolute inset-0 opacity-[0.06] pointer-events-none z-0 bg-[radial-gradient(circle_at_1px_1px,_rgba(84,101,111,0.35)_1px,_transparent_0)] bg-[length:24px_24px]"></div>
 
         <!-- Messages Area -->
         <div class="flex-1 overflow-y-auto p-4 md:p-8 space-y-3 z-10 relative flex flex-col">

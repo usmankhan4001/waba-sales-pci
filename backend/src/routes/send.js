@@ -63,6 +63,46 @@ async function logActivity(domain, accessToken, { leadId, entityTypeId, responsi
   );
 }
 
+function normalizePhones(rawPhones) {
+  if (Array.isArray(rawPhones)) return rawPhones;
+  if (!rawPhones || typeof rawPhones !== 'object') return [];
+  return Object.values(rawPhones).filter(Boolean);
+}
+
+function pickBestPhone(phones) {
+  return phones.find((p) => p.VALUE_TYPE === 'MOBILE') || phones.find((p) => p.VALUE_TYPE === 'WORK') || phones[0] || null;
+}
+
+async function resolveEntityPhones(domain, accessToken, entityData) {
+  let phones = normalizePhones(entityData.PHONE);
+
+  if (phones.length === 0 && entityData.FM?.PHONE) {
+    phones = normalizePhones(entityData.FM.PHONE);
+  }
+
+  const candidateContactIds = [
+    entityData.CONTACT_ID,
+    ...(Array.isArray(entityData.CONTACT_IDS) ? entityData.CONTACT_IDS : []),
+    ...(Array.isArray(entityData.CONTACT_BINDINGS) ? entityData.CONTACT_BINDINGS.map((binding) => binding.CONTACT_ID) : []),
+  ].filter(Boolean);
+
+  for (const contactId of candidateContactIds) {
+    if (phones.length > 0) break;
+    try {
+      const contactResp = await callMethodWithToken(domain, 'crm.contact.get', { id: contactId }, accessToken);
+      const contactData = contactResp.result || {};
+      phones = normalizePhones(contactData.PHONE);
+      if (phones.length === 0 && contactData.FM?.PHONE) {
+        phones = normalizePhones(contactData.FM.PHONE);
+      }
+    } catch (err) {
+      console.warn(`[send] failed to fetch linked contact ${contactId}:`, err.message);
+    }
+  }
+
+  return phones;
+}
+
 /**
  * Body: {
  *   domain, accessToken,          // from BX24.getAuth() on the frontend
@@ -108,29 +148,8 @@ router.post('/', async (req, res) => {
     const entityData = entityResp.result;
     if (!entityData) return res.status(404).json({ error: 'CRM record not found' });
 
-    let phones = Array.isArray(entityData.PHONE) ? entityData.PHONE : [];
-    
-    if (phones.length === 0 && entityData.CONTACT_ID) {
-      try {
-        const contactResp = await callMethodWithToken(domain, 'crm.contact.get', { id: entityData.CONTACT_ID }, accessToken);
-        const contactPhones = contactResp.result?.PHONE;
-        if (Array.isArray(contactPhones)) phones = contactPhones;
-      } catch (e) {
-        console.warn(`Failed to fetch linked contact ${entityData.CONTACT_ID}:`, e.message);
-      }
-    }
-
-    if (phones.length === 0 && Array.isArray(entityData.CONTACT_BINDINGS) && entityData.CONTACT_BINDINGS.length > 0) {
-      try {
-        const contactResp = await callMethodWithToken(domain, 'crm.contact.get', { id: entityData.CONTACT_BINDINGS[0].CONTACT_ID }, accessToken);
-        const contactPhones = contactResp.result?.PHONE;
-        if (Array.isArray(contactPhones)) phones = contactPhones;
-      } catch (e) {
-        console.warn(`Failed to fetch bound contact ${entityData.CONTACT_BINDINGS[0].CONTACT_ID}:`, e.message);
-      }
-    }
-
-    const bestPhone = phones.find((p) => p.VALUE_TYPE === 'MOBILE') || phones.find((p) => p.VALUE_TYPE === 'WORK') || phones[0];
+    const phones = await resolveEntityPhones(domain, accessToken, entityData);
+    const bestPhone = pickBestPhone(phones);
     const phone = bestPhone?.VALUE;
     
     if (!phone) return res.status(400).json({ error: 'CRM record has no phone number' });
@@ -161,7 +180,7 @@ router.post('/', async (req, res) => {
     // FR-10/11/12: every approved template's body takes 3 vars - client name, project name, executive signature.
     // Each is editable per-send from the frontend's preview screen, falling back to sensible defaults.
     const bodyVars = [
-      clientName || lead.NAME || 'there',
+      clientName || entityData.NAME || entityData.TITLE || 'there',
       projectText || projectName || 'the project',
       executiveSignature || executiveName || 'Your Sales Advisor',
     ];
@@ -184,7 +203,14 @@ router.post('/', async (req, res) => {
     ]);
 
     const results = [];
-    const analyticsBase = { leadId, leadName: lead.NAME, projectName, executiveName, ctaNumber, responsibleId };
+    const analyticsBase = {
+      leadId,
+      leadName: entityData.NAME || entityData.TITLE || `Record ${leadId}`,
+      projectName,
+      executiveName,
+      ctaNumber,
+      responsibleId,
+    };
 
     // 1. contact_now, sent first (FR-13), unless deselected on Screen 1.
     if (includeContactNow) {
