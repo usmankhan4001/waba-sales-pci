@@ -231,45 +231,50 @@ async function send() {
     <div v-else class="flex flex-1 overflow-hidden">
       <!-- Left Pane: Configuration -->
       <div class="w-1/2 flex flex-col border-r bg-white overflow-y-auto">
-        <div class="p-6 border-b flex justify-between items-center bg-gray-50 sticky top-0 z-10">
+        <div class="p-6 border-b flex justify-between items-center bg-gray-50 sticky top-0 z-10 shadow-sm">
           <div>
             <h2 class="text-xl font-semibold text-gray-800">Send WhatsApp Material</h2>
             <p class="text-gray-500 mt-1">Select a project and the materials you want to send.</p>
           </div>
-          <a :href="`${config.public.backendUrl}/analytics`" target="_blank" class="text-blue-500 hover:underline">Analytics</a>
+          <B24Button :to="`${config.public.backendUrl}/analytics`" target="_blank" color="primary" variant="light" size="sm">Analytics</B24Button>
         </div>
         
-        <div class="p-6 space-y-8">
+        <div class="p-6 space-y-6 bg-gray-50/50">
           <!-- Step 1: Project & Contact -->
-          <section>
-            <h3 class="font-medium text-gray-800 mb-4 flex items-center"><span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center mr-2 text-xs">1</span> Project & Lead Details</h3>
-            <div class="space-y-4 ml-8">
-              <div>
-                <label class="block font-medium text-gray-700 mb-1">Select Project</label>
+          <B24Card>
+            <template #header>
+              <div class="flex items-center gap-2 font-medium text-gray-800">
+                <span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span> Project & Lead Details
+              </div>
+            </template>
+            <div class="space-y-4">
+              <B24FormField label="Select Project">
                 <B24Select
                   v-model="selectedProjectId"
                   :items="projects.map((p) => ({ label: p.title, value: p.id }))"
                   placeholder="Choose a project from Drive"
                   class="w-full"
                 />
-              </div>
+              </B24FormField>
               <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="block font-medium text-gray-700 mb-1">Lead WhatsApp</label>
-                  <input :value="leadPhone || 'No phone number'" type="text" disabled class="w-full border rounded-lg px-3 py-2 bg-gray-100 text-gray-500" />
-                </div>
-                <div>
-                  <label class="block font-medium text-gray-700 mb-1">Your Contact Number</label>
-                  <input v-model="ctaNumber" type="text" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" placeholder="+9715xxxxxxxx" />
-                </div>
+                <B24FormField label="Lead WhatsApp">
+                  <B24Input :model-value="leadPhone || 'No phone number'" disabled />
+                </B24FormField>
+                <B24FormField label="Your Contact Number">
+                  <B24Input v-model="ctaNumber" placeholder="+9715xxxxxxxx" />
+                </B24FormField>
               </div>
             </div>
-          </section>
+          </B24Card>
 
           <!-- Step 2: Content Selection -->
-          <section>
-            <h3 class="font-medium text-gray-800 mb-4 flex items-center"><span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center mr-2 text-xs">2</span> Select Content to Send</h3>
-            <div class="ml-8 space-y-4">
+          <B24Card>
+            <template #header>
+              <div class="flex items-center gap-2 font-medium text-gray-800">
+                <span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-xs">2</span> Select Content to Send
+              </div>
+            </template>
+            <div class="space-y-4">
               <div class="grid grid-cols-2 gap-3">
                 <label v-for="(label, type) in MESSAGE_TYPE_LABELS" :key="type" class="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition" :class="{'border-blue-500 bg-blue-50': selectedMessageTypes.includes(type as MessageType)}">
                   <B24Checkbox
@@ -283,7 +288,7 @@ async function send() {
 
               <B24Alert v-if="fileLoadError" color="air-primary-alert" :title="fileLoadError" />
 
-              <div v-if="selectedProjectId && mediaTypesSelected.length" class="mt-6 space-y-5 bg-gray-50 p-4 rounded-lg border">
+              <div v-if="selectedProjectId && mediaTypesSelected.length" class="mt-4 space-y-4 bg-gray-50 p-4 rounded-lg border">
                 <h4 class="font-medium text-gray-700 border-b pb-2">Available Files in Project Folder</h4>
                 <div v-for="type in mediaTypesSelected" :key="type" class="space-y-2">
                   <div class="font-medium text-gray-600 text-xs uppercase tracking-wider">{{ MESSAGE_TYPE_LABELS[type] }}</div>
@@ -295,26 +300,27 @@ async function send() {
                 </div>
               </div>
             </div>
-          </section>
+          </B24Card>
 
           <!-- Step 3: Message Customization -->
-          <section>
-            <h3 class="font-medium text-gray-800 mb-4 flex items-center"><span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center mr-2 text-xs">3</span> Customize Message</h3>
-            <div class="ml-8 grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg border">
-              <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1 uppercase tracking-wider">Client Name</label>
-                <input v-model="clientName" type="text" class="w-full border rounded-lg px-3 py-2 bg-white" />
+          <B24Card>
+            <template #header>
+              <div class="flex items-center gap-2 font-medium text-gray-800">
+                <span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-xs">3</span> Customize Message
               </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1 uppercase tracking-wider">Project Reference</label>
-                <input v-model="projectText" type="text" class="w-full border rounded-lg px-3 py-2 bg-white" />
-              </div>
-              <div class="md:col-span-2">
-                <label class="block text-xs font-medium text-gray-600 mb-1 uppercase tracking-wider">Executive Signature</label>
-                <input v-model="executiveSignature" type="text" class="w-full border rounded-lg px-3 py-2 bg-white" />
-              </div>
+            </template>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <B24FormField label="Client Name">
+                <B24Input v-model="clientName" />
+              </B24FormField>
+              <B24FormField label="Project Reference">
+                <B24Input v-model="projectText" />
+              </B24FormField>
+              <B24FormField label="Executive Signature" class="md:col-span-2">
+                <B24Input v-model="executiveSignature" />
+              </B24FormField>
             </div>
-          </section>
+          </B24Card>
         </div>
       </div>
 
