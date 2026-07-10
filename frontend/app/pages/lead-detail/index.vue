@@ -3,32 +3,29 @@ const b24 = useB24()
 const config = useRuntimeConfig()
 
 const loadError = ref('')
-const fileLoadError = ref('') // non-blocking: shown inline, doesn't hide the whole form
+const fileLoadError = ref('')
 
 const leadId = ref<number | null>(null)
 const leadName = ref('')
-const leadPhone = ref('') // recipient's own WhatsApp number, auto-fetched (read-only, sourced from the CRM Lead)
+const leadPhone = ref('')
 
-// Projects come directly from the Drive subfolders under NUXT_PUBLIC_PROJECTS_DRIVE_ROOT_FOLDER_ID
-// ("WABA Project Files") - each subfolder IS a project, named however the folder is named.
 const projects = ref<{ id: number; title: string }[]>([])
-const selectedProjectId = ref<number | null>(null) // same as the project's Drive folder ID
+const selectedProjectId = ref<number | null>(null)
 
 type MessageType = 'contact_now' | 'brochure' | 'video' | 'image' | 'layout'
 const MESSAGE_TYPE_LABELS: Record<MessageType, string> = {
-  contact_now: 'Contact Now',
-  brochure: 'Brochure',
+  contact_now: 'Contact Now (Image)',
+  brochure: 'Brochure (PDF)',
   video: 'Video',
   image: 'Image',
-  layout: 'Layout Plan',
+  layout: 'Layout Plan (PDF)',
 }
 const selectedMessageTypes = ref<MessageType[]>(['contact_now'])
 
 const ctaNumber = ref('')
-const defaultCtaNumber = ref('') // guardrail 8.2: used to flag deviation from the executive's profile default
-const executiveName = ref('') // default 3rd body variable (signature line)
+const defaultCtaNumber = ref('')
+const executiveName = ref('')
 
-// Per-send overrides of the 3 approved-template body variables.
 const clientName = ref('')
 const projectText = ref('')
 const executiveSignature = ref('')
@@ -40,9 +37,6 @@ const selectedFileIds = ref<number[]>([])
 const sending = ref(false)
 const results = ref<{ item: string; success: boolean; error?: string }[] | null>(null)
 
-// Extension-based patterns checked before keyword-based ones, so e.g. "video_layout_plan.mp4"
-// classifies as video (unambiguous from the extension) rather than layout (an incidental
-// keyword match).
 const TYPE_BY_KEYWORD: [RegExp, DriveFile['type']][] = [
   [/\.(mp4|mov)$/i, 'video'],
   [/\.pdf$/i, 'brochure'],
@@ -59,7 +53,6 @@ function classify(name: string): DriveFile['type'] {
 
 onMounted(async () => {
   try {
-    // CRM_LEAD_DETAIL_TAB placement supplies the lead id via placement options.
     const options = b24.placement.options as Record<string, any>
     leadId.value = Number(options?.ID ?? options?.ENTITY_ID)
 
@@ -133,7 +126,6 @@ function toggleFile(id: number, checked: boolean) {
   selectedFileIds.value = checked ? [...selectedFileIds.value, id] : selectedFileIds.value.filter((i) => i !== id)
 }
 
-// Preview text mirrors the real approved OnCloud template bodies (WhatsApp *bold* markers kept as-is).
 const PREVIEW_BODY: Record<MessageType, string> = {
   contact_now:
     'Hi *{{1}}*,\nThank you for your interest in *{{2}}*.\n\nWe will guide you with project details, availability, pricing, payment plans, and the next steps.\nTap below to connect directly.\n\n*{{3}}*\nSales Executive',
@@ -141,13 +133,18 @@ const PREVIEW_BODY: Record<MessageType, string> = {
     'Hi *{{1}}*,\nAs requested, I am sharing the brochure for *{{2}}*. It includes the project overview, layouts, amenities, location details, and key highlights.\nTo Book your Site Visit Today, tap below.\n\n*{{3}}*\nSales Executive',
   video:
     'Hi *{{1}}*,\nHere is the construction update for *{{2}}*.\nIt gives you a clearer look at the project update, spaces, lifestyle, and overall experience before your visit.\nTap below to discuss the details and payment plan.\n\n*{{3}}*\nSales Executive',
-  image: '',
-  layout: '',
+  image:
+    'Hi *{{1}}*,\nThank you for your interest in *{{2}}*.\n\nWe will guide you with project details, availability, pricing, payment plans, and the next steps.\nTap below to connect directly.\n\n*{{3}}*\nSales Executive',
+  layout:
+    'Hi *{{1}}*,\nAs requested, I am sharing the layout plan for *{{2}}*. It includes the project overview, layouts, amenities, location details, and key highlights.\nTo Book your Site Visit Today, tap below.\n\n*{{3}}*\nSales Executive',
 }
+
 const PREVIEW_BUTTON: Record<string, string> = {
   contact_now: 'Talk to Advisor',
   brochure: 'Schedule Your Site Visit',
   video: 'Talk to Advisor',
+  image: 'Talk to Advisor',
+  layout: 'Schedule Your Site Visit',
 }
 
 function renderPreviewBody(type: MessageType) {
@@ -159,10 +156,6 @@ function renderPreviewBody(type: MessageType) {
     .replace('{{3}}', executiveSignature.value || 'Your Sales Advisor')
 }
 
-// clientName/projectText/executiveSignature are free-text user input - rendering them via
-// v-html would be a stored-XSS vector (arbitrary script executing inside the Bitrix24 iframe,
-// which has a live CRM access token). Split into text/bold segments instead and render through
-// normal Vue interpolation, which auto-escapes.
 function renderPreviewSegments(type: MessageType): { text: string; bold: boolean }[] {
   const raw = renderPreviewBody(type)
   return raw
@@ -176,10 +169,8 @@ function renderPreviewSegments(type: MessageType): { text: string; bold: boolean
 
 const previewItems = computed(() => {
   const items: { type: MessageType; label: string; file?: DriveFile }[] = []
-  if (selectedMessageTypes.value.includes('contact_now')) items.push({ type: 'contact_now', label: 'Contact Now (cover image)' })
+  if (selectedMessageTypes.value.includes('contact_now')) items.push({ type: 'contact_now', label: 'Contact Now (Cover Image)' })
   for (const f of files.value) {
-    // Guard against a file whose type checkbox was unchecked after the file was selected -
-    // otherwise it silently stays in the send batch despite looking deselected.
     if (f.type && mediaTypesSelected.value.includes(f.type) && selectedFileIds.value.includes(f.id)) {
       items.push({ type: f.type, label: f.name, file: f })
     }
@@ -198,8 +189,6 @@ async function send() {
       throw new Error('Could not read Bitrix24 auth from the frame - try reloading the tab.')
     }
 
-    // Derived from previewItems (not files.value directly) so a file whose type checkbox
-    // was unchecked after selection can't sneak into the send batch despite not previewing.
     const selectedFiles = previewItems.value
       .filter((item) => item.file)
       .map((item) => ({ id: item.file!.id, type: item.file!.type, filename: item.file!.name }))
@@ -236,109 +225,193 @@ async function send() {
 </script>
 
 <template>
-  <div class="p-4 max-w-xl mx-auto space-y-4">
-    <B24Alert v-if="loadError" color="air-primary-alert" :title="loadError" />
-
-    <B24Card v-else>
-      <template #header>
-        <div class="flex items-center justify-between">
-          <h3 class="text-lg font-medium">Send WhatsApp Material</h3>
-          <a :href="`${config.public.backendUrl}/analytics`" target="_blank" class="text-xs text-gray-400 hover:underline">Analytics</a>
-        </div>
-      </template>
-
-      <div class="space-y-5">
-        <div>
-          <label class="block text-sm font-medium mb-1">Project</label>
-          <B24Select
-            v-model="selectedProjectId"
-            :items="projects.map((p) => ({ label: p.title, value: p.id }))"
-            placeholder="Select a project"
-          />
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium mb-1">Lead's WhatsApp number</label>
-          <input :value="leadPhone || 'No phone number on this Lead'" type="text" disabled class="w-full border rounded px-3 py-2 bg-gray-50 text-gray-600" />
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium mb-1">Sales executive's Contact Now number</label>
-          <input v-model="ctaNumber" type="text" class="w-full border rounded px-3 py-2" placeholder="+9715xxxxxxxx" />
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium mb-2">Messages to send</label>
-          <div class="space-y-2">
-            <div v-for="(label, type) in MESSAGE_TYPE_LABELS" :key="type" class="flex items-center gap-2">
-              <B24Checkbox
-                :model-value="selectedMessageTypes.includes(type as MessageType)"
-                @update:model-value="(v) => toggleMessageType(type as MessageType, Boolean(v))"
-              />
-              <span>{{ label }}</span>
-            </div>
+  <div class="h-screen flex flex-col bg-gray-50 overflow-hidden text-sm">
+    <B24Alert v-if="loadError" color="air-primary-alert" :title="loadError" class="m-4" />
+    
+    <div v-else class="flex flex-1 overflow-hidden">
+      <!-- Left Pane: Configuration -->
+      <div class="w-1/2 flex flex-col border-r bg-white overflow-y-auto">
+        <div class="p-6 border-b flex justify-between items-center bg-gray-50 sticky top-0 z-10">
+          <div>
+            <h2 class="text-xl font-semibold text-gray-800">Send WhatsApp Material</h2>
+            <p class="text-gray-500 mt-1">Select a project and the materials you want to send.</p>
           </div>
+          <a :href="`${config.public.backendUrl}/analytics`" target="_blank" class="text-blue-500 hover:underline">Analytics</a>
         </div>
-
-        <B24Alert v-if="fileLoadError" color="air-primary-alert" :title="fileLoadError" />
-
-        <div v-if="selectedProjectId && mediaTypesSelected.length" class="space-y-3">
-          <div v-for="type in mediaTypesSelected" :key="type">
-            <div class="text-sm font-medium mb-1">{{ MESSAGE_TYPE_LABELS[type] }}</div>
-            <div v-if="!filesByType[type]?.length" class="text-sm text-gray-500">No {{ MESSAGE_TYPE_LABELS[type].toLowerCase() }} files found in this project's Drive folder.</div>
-            <div v-for="f in filesByType[type]" :key="f.id" class="flex items-center gap-2">
-              <B24Checkbox :model-value="selectedFileIds.includes(f.id)" @update:model-value="(v) => toggleFile(f.id, Boolean(v))" />
-              <span>{{ f.name }}</span>
+        
+        <div class="p-6 space-y-8">
+          <!-- Step 1: Project & Contact -->
+          <section>
+            <h3 class="font-medium text-gray-800 mb-4 flex items-center"><span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center mr-2 text-xs">1</span> Project & Lead Details</h3>
+            <div class="space-y-4 ml-8">
+              <div>
+                <label class="block font-medium text-gray-700 mb-1">Select Project</label>
+                <B24Select
+                  v-model="selectedProjectId"
+                  :items="projects.map((p) => ({ label: p.title, value: p.id }))"
+                  placeholder="Choose a project from Drive"
+                  class="w-full"
+                />
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block font-medium text-gray-700 mb-1">Lead WhatsApp</label>
+                  <input :value="leadPhone || 'No phone number'" type="text" disabled class="w-full border rounded-lg px-3 py-2 bg-gray-100 text-gray-500" />
+                </div>
+                <div>
+                  <label class="block font-medium text-gray-700 mb-1">Your Contact Number</label>
+                  <input v-model="ctaNumber" type="text" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" placeholder="+9715xxxxxxxx" />
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </section>
 
-        <details class="text-sm">
-          <summary class="cursor-pointer font-medium">Edit message text</summary>
-          <div class="space-y-3 mt-2">
-            <div>
-              <label class="block text-xs font-medium mb-1">Client name</label>
-              <input v-model="clientName" type="text" class="w-full border rounded px-3 py-2" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium mb-1">Project reference</label>
-              <input v-model="projectText" type="text" class="w-full border rounded px-3 py-2" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium mb-1">Executive signature</label>
-              <input v-model="executiveSignature" type="text" class="w-full border rounded px-3 py-2" />
-            </div>
-          </div>
-        </details>
+          <!-- Step 2: Content Selection -->
+          <section>
+            <h3 class="font-medium text-gray-800 mb-4 flex items-center"><span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center mr-2 text-xs">2</span> Select Content to Send</h3>
+            <div class="ml-8 space-y-4">
+              <div class="grid grid-cols-2 gap-3">
+                <label v-for="(label, type) in MESSAGE_TYPE_LABELS" :key="type" class="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition" :class="{'border-blue-500 bg-blue-50': selectedMessageTypes.includes(type as MessageType)}">
+                  <B24Checkbox
+                    :model-value="selectedMessageTypes.includes(type as MessageType)"
+                    @update:model-value="(v) => toggleMessageType(type as MessageType, Boolean(v))"
+                    class="mr-3"
+                  />
+                  <span class="font-medium text-gray-700">{{ label }}</span>
+                </label>
+              </div>
 
-        <div v-if="previewItems.length" class="space-y-3">
-          <label class="block text-sm font-medium">Preview</label>
-          <div v-for="(item, i) in previewItems" :key="i" class="border rounded-lg p-3 bg-[#e7ffdb]">
-            <div class="text-xs font-medium text-gray-500 mb-1">{{ item.label }}</div>
-            <div class="whitespace-pre-line text-sm">
-              <template v-for="(seg, si) in renderPreviewSegments(item.type)" :key="si">
-                <strong v-if="seg.bold">{{ seg.text }}</strong>
-                <template v-else>{{ seg.text }}</template>
-              </template>
-            </div>
-            <div v-if="PREVIEW_BUTTON[item.type]" class="mt-2 text-center text-sm text-blue-600 border-t pt-2">
-              {{ PREVIEW_BUTTON[item.type] }}
-            </div>
-          </div>
-        </div>
+              <B24Alert v-if="fileLoadError" color="air-primary-alert" :title="fileLoadError" />
 
-        <B24Button :disabled="!canSend" :loading="sending" @click="send">Send</B24Button>
-        <div v-if="sending" class="text-xs text-gray-500">Sending to WhatsApp - this can take a few seconds per item...</div>
+              <div v-if="selectedProjectId && mediaTypesSelected.length" class="mt-6 space-y-5 bg-gray-50 p-4 rounded-lg border">
+                <h4 class="font-medium text-gray-700 border-b pb-2">Available Files in Project Folder</h4>
+                <div v-for="type in mediaTypesSelected" :key="type" class="space-y-2">
+                  <div class="font-medium text-gray-600 text-xs uppercase tracking-wider">{{ MESSAGE_TYPE_LABELS[type] }}</div>
+                  <div v-if="!filesByType[type]?.length" class="text-gray-400 italic text-sm">No files found.</div>
+                  <div v-for="f in filesByType[type]" :key="f.id" class="flex items-center gap-2">
+                    <B24Checkbox :model-value="selectedFileIds.includes(f.id)" @update:model-value="(v) => toggleFile(f.id, Boolean(v))" />
+                    <span class="text-gray-700">{{ f.name }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
 
-        <div v-if="results" class="space-y-1">
-          <B24Alert
-            v-for="(r, i) in results"
-            :key="i"
-            :color="r.success ? 'air-primary-success' : 'air-primary-alert'"
-            :title="`${r.item}: ${r.success ? 'sent ✓' : `failed ✗ (${r.error})`}`"
-          />
+          <!-- Step 3: Message Customization -->
+          <section>
+            <h3 class="font-medium text-gray-800 mb-4 flex items-center"><span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center mr-2 text-xs">3</span> Customize Message</h3>
+            <div class="ml-8 grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg border">
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1 uppercase tracking-wider">Client Name</label>
+                <input v-model="clientName" type="text" class="w-full border rounded-lg px-3 py-2 bg-white" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1 uppercase tracking-wider">Project Reference</label>
+                <input v-model="projectText" type="text" class="w-full border rounded-lg px-3 py-2 bg-white" />
+              </div>
+              <div class="md:col-span-2">
+                <label class="block text-xs font-medium text-gray-600 mb-1 uppercase tracking-wider">Executive Signature</label>
+                <input v-model="executiveSignature" type="text" class="w-full border rounded-lg px-3 py-2 bg-white" />
+              </div>
+            </div>
+          </section>
         </div>
       </div>
-    </B24Card>
+
+      <!-- Right Pane: WhatsApp Preview -->
+      <div class="w-1/2 flex flex-col bg-[#efeae2] relative overflow-hidden">
+        <!-- Chat Header -->
+        <div class="bg-[#f0f2f5] px-4 py-3 border-b border-gray-300 flex items-center gap-3 z-10">
+          <div class="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center text-white font-bold text-lg overflow-hidden">
+            <svg class="w-full h-full text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+          </div>
+          <div>
+            <div class="font-medium text-gray-900">{{ leadName || 'Client' }}</div>
+            <div class="text-xs text-gray-500">{{ leadPhone || 'No phone number' }}</div>
+          </div>
+        </div>
+
+        <!-- Chat Background Pattern (Subtle) -->
+        <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: url('https://waba-bitrix.premierchoiceint.online/static/whatsapp-bg.png'); background-size: cover; mix-blend-mode: multiply;"></div>
+
+        <!-- Messages Area -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-4 z-10 relative">
+          <div v-if="!previewItems.length" class="flex justify-center mt-10">
+            <div class="bg-[#fff9c4] text-gray-700 px-4 py-2 rounded-lg shadow-sm text-center text-xs max-w-sm">
+              Select content on the left to see the WhatsApp preview here.
+            </div>
+          </div>
+
+          <!-- Message Bubbles -->
+          <div v-for="(item, i) in previewItems" :key="i" class="flex justify-start">
+            <div class="bg-white rounded-lg shadow-sm max-w-[85%] overflow-hidden relative pb-1">
+              <!-- Media Header Preview -->
+              <div class="bg-gray-200 h-32 w-full flex items-center justify-center mb-2 relative group">
+                <div v-if="item.type === 'video'" class="absolute inset-0 flex items-center justify-center">
+                  <div class="w-12 h-12 bg-black bg-opacity-50 rounded-full flex items-center justify-center backdrop-blur-sm">
+                    <svg class="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                  </div>
+                </div>
+                <div v-else-if="item.type === 'brochure' || item.type === 'layout'" class="absolute inset-0 flex flex-col items-center justify-center text-red-500">
+                   <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5c0 .8-.7 1.5-1.5 1.5H7v2H5.5V9H8c.8 0 1.5.7 1.5 1.5v1zM13 14c0 .8-.7 1.5-1.5 1.5H9.5V9H11.5c.8 0 1.5.7 1.5 1.5v3.5zm5.5-1.5h-2.5V14h-1.5V9H18.5v1.5h-2.5v1h2.5v1z"/></svg>
+                   <span class="text-xs font-bold mt-1 text-gray-600 px-2 truncate w-full text-center">{{ item.label }}</span>
+                </div>
+                <div v-else class="text-gray-400">
+                  <svg class="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                </div>
+              </div>
+              
+              <!-- Message Text -->
+              <div class="px-3 pb-2 pt-1 text-[#111b21] whitespace-pre-wrap leading-relaxed text-[14px]">
+                <template v-for="(seg, si) in renderPreviewSegments(item.type)" :key="si">
+                  <strong v-if="seg.bold" class="font-bold">{{ seg.text }}</strong>
+                  <template v-else>{{ seg.text }}</template>
+                </template>
+              </div>
+
+              <!-- Button -->
+              <div v-if="PREVIEW_BUTTON[item.type]" class="border-t border-gray-100 mt-1">
+                <div class="py-3 text-center text-[#00a884] font-medium flex items-center justify-center gap-2 hover:bg-gray-50 transition cursor-pointer">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                  {{ PREVIEW_BUTTON[item.type] }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Action Bar -->
+        <div class="bg-[#f0f2f5] p-4 border-t border-gray-300 z-10 flex flex-col shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+          <div v-if="results" class="mb-3 space-y-2 max-h-32 overflow-y-auto pr-2">
+            <B24Alert
+              v-for="(r, i) in results"
+              :key="i"
+              :color="r.success ? 'air-primary-success' : 'air-primary-alert'"
+              :title="`${r.item}: ${r.success ? 'Sent ✓' : `Failed ✗ (${r.error})`}`"
+              class="py-1"
+            />
+          </div>
+          
+          <B24Button 
+            class="w-full py-3 text-base shadow-sm bg-[#00a884] hover:bg-[#008f6f] text-white font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            :disabled="!canSend" 
+            :loading="sending" 
+            @click="send"
+          >
+            <span v-if="sending" class="flex items-center justify-center gap-2">
+              <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Sending to WhatsApp...
+            </span>
+            <span v-else class="flex items-center justify-center gap-2">
+              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+              Send to {{ leadName || 'Client' }}
+            </span>
+          </B24Button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

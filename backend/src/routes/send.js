@@ -4,29 +4,28 @@ const { callMethodWithToken } = require('../bitrix/client');
 const oncloud = require('../oncloud/client');
 const rateLimiter = require('../store/rateLimiter');
 const connectTokens = require('../store/connectTokens');
+const mediaTokens = require('../store/mediaTokens');
 const suppressionList = require('../store/suppressionList');
 const analyticsLog = require('../store/analyticsLog');
 
 const router = express.Router();
 router.use(express.json());
 
-// Real approved OnCloud template names (FR-9/10/11/12) - confirmed live via getTemplates.
-// send_project_image and send_layout_plan aren't approved yet; kept here so selecting
-// them fails cleanly with "template not in approved state" rather than an unknown-type error.
-const CONTACT_NOW_TEMPLATE = 'contact_now_sales_pci';
+// Real approved OnCloud template names (FR-9/10/11/12) - generic names.
+const CONTACT_NOW_TEMPLATE = 'contact_now';
 const MEDIA_TEMPLATES = {
-  brochure: { name: 'send_brochure_doc_sales_pci', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
-  video: { name: 'send_project_video_sales_pci', build: (file) => oncloud.videoHeaderComponent(file.link) },
-  image: { name: 'send_project_image_sales_pci', build: (file) => oncloud.imageHeaderComponent(file.link) },
-  layout: { name: 'send_layout_plan_sales_pci', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
+  brochure: { name: 'brochure', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
+  video: { name: 'video', build: (file) => oncloud.videoHeaderComponent(file.link) },
+  image: { name: 'contact_now', build: (file) => oncloud.imageHeaderComponent(file.link) },
+  layout: { name: 'brochure', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
 };
 
-// disk.file.getExternalLink returns an HTML preview/player page (confirmed live: Content-Type
-// text/html), not the raw file - Meta's servers can't fetch that as media. disk.file.get's
-// DOWNLOAD_URL is the actual direct-download link with the correct binary content-type.
-async function resolveFileDownloadUrl(domain, accessToken, fileId) {
-  const fileResp = await callMethodWithToken(domain, 'disk.file.get', { id: fileId }, accessToken);
-  return fileResp.result?.DOWNLOAD_URL;
+// We generate a short-lived proxy token mapped to this file.
+// The OnCloud API will hit our public /media/:token endpoint, which then proxies
+// the download using the secure Bitrix24 app token.
+async function resolveFileDownloadUrl(domain, accessToken, fileId, filename = 'file') {
+  const token = mediaTokens.createToken(domain, fileId, filename);
+  return `${config.baseUrl}/media/${token}`;
 }
 
 /** FR-17: project's Drive cover image if one exists, else the fixed default brand cover. */
@@ -35,7 +34,7 @@ async function resolveCoverImageLink(domain, accessToken, projectDriveFolderId) 
     const childrenResp = await callMethodWithToken(domain, 'disk.folder.getchildren', { id: projectDriveFolderId }, accessToken);
     const cover = (childrenResp.result || []).find((c) => c.TYPE === 'file' && /cover/i.test(c.NAME));
     if (cover) {
-      const link = await resolveFileDownloadUrl(domain, accessToken, cover.ID);
+      const link = await resolveFileDownloadUrl(domain, accessToken, cover.ID, cover.NAME);
       if (link) return link;
     }
   }
@@ -152,7 +151,7 @@ router.post('/', async (req, res) => {
       Promise.all(
         files.map(async (file) => {
           try {
-            return { file, link: await resolveFileDownloadUrl(domain, accessToken, file.id) };
+            return { file, link: await resolveFileDownloadUrl(domain, accessToken, file.id, file.filename) };
           } catch (err) {
             return { file, error: err.message };
           }

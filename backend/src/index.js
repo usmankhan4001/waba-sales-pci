@@ -7,6 +7,7 @@ const config = require('./config');
 const installRouter = require('./routes/install');
 const sendRouter = require('./routes/send');
 const connectRouter = require('./routes/connect');
+const mediaRouter = require('./routes/media');
 const oncloudWebhookRouter = require('./routes/oncloudWebhook');
 const analyticsRouter = require('./routes/analytics');
 
@@ -30,6 +31,7 @@ app.use('/', installRouter);
 app.use('/api/bitrix/install', installRouter);
 app.use('/api/send', sendRouter);
 app.use('/connect', connectRouter);
+app.use('/media', mediaRouter);
 app.use('/api/oncloud/webhook', oncloudWebhookRouter);
 app.use('/api/analytics', analyticsRouter);
 
