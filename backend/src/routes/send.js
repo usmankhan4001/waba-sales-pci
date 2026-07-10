@@ -108,12 +108,26 @@ router.post('/', async (req, res) => {
     const entityData = entityResp.result;
     if (!entityData) return res.status(404).json({ error: 'CRM record not found' });
 
-    let phones = entityData.PHONE || [];
-    if (!phones.length && entityData.CONTACT_ID) {
+    let phones = Array.isArray(entityData.PHONE) ? entityData.PHONE : [];
+    
+    if (phones.length === 0 && entityData.CONTACT_ID) {
       try {
         const contactResp = await callMethodWithToken(domain, 'crm.contact.get', { id: entityData.CONTACT_ID }, accessToken);
-        phones = contactResp.result?.PHONE || [];
-      } catch (e) {}
+        const contactPhones = contactResp.result?.PHONE;
+        if (Array.isArray(contactPhones)) phones = contactPhones;
+      } catch (e) {
+        console.warn(`Failed to fetch linked contact ${entityData.CONTACT_ID}:`, e.message);
+      }
+    }
+
+    if (phones.length === 0 && Array.isArray(entityData.CONTACT_BINDINGS) && entityData.CONTACT_BINDINGS.length > 0) {
+      try {
+        const contactResp = await callMethodWithToken(domain, 'crm.contact.get', { id: entityData.CONTACT_BINDINGS[0].CONTACT_ID }, accessToken);
+        const contactPhones = contactResp.result?.PHONE;
+        if (Array.isArray(contactPhones)) phones = contactPhones;
+      } catch (e) {
+        console.warn(`Failed to fetch bound contact ${entityData.CONTACT_BINDINGS[0].CONTACT_ID}:`, e.message);
+      }
     }
 
     const bestPhone = phones.find((p) => p.VALUE_TYPE === 'MOBILE') || phones.find((p) => p.VALUE_TYPE === 'WORK') || phones[0];

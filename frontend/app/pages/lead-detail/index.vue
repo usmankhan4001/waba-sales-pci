@@ -92,21 +92,42 @@ onMounted(async () => {
     const entityData = entityRes.getData().result || {}
     leadName.value = [entityData.NAME, entityData.LAST_NAME].filter(Boolean).join(' ') || entityData.TITLE || ''
     
-    let phones = entityData.PHONE || []
+    let phones = Array.isArray(entityData.PHONE) ? entityData.PHONE : []
     
-    // If no phones and it has a CONTACT_ID (like in Deals), fetch the contact's phone
-    if (!phones.length && entityData.CONTACT_ID) {
+    // If no valid phones found on the entity itself, check for a linked contact
+    if (phones.length === 0 && entityData.CONTACT_ID) {
       try {
         const contactRes = await b24.callMethod('crm.contact.get', { id: entityData.CONTACT_ID })
         const contactData = contactRes.getData().result || {}
-        phones = contactData.PHONE || []
+        if (Array.isArray(contactData.PHONE)) {
+          phones = contactData.PHONE
+        }
         
-        // Use contact name if entity doesn't have a specific name
+        // Use contact name if entity doesn't have a specific person name
         if (!leadName.value || leadName.value === entityData.TITLE) {
           const cName = [contactData.NAME, contactData.LAST_NAME].filter(Boolean).join(' ')
           if (cName) leadName.value = cName
         }
-      } catch (e) {}
+      } catch (e: any) {
+        console.warn('Failed to fetch linked contact:', e)
+      }
+    }
+
+    // Sometimes the contact is bound through CONTACT_BINDINGS instead of CONTACT_ID
+    if (phones.length === 0 && Array.isArray(entityData.CONTACT_BINDINGS) && entityData.CONTACT_BINDINGS.length > 0) {
+      try {
+        const contactRes = await b24.callMethod('crm.contact.get', { id: entityData.CONTACT_BINDINGS[0].CONTACT_ID })
+        const contactData = contactRes.getData().result || {}
+        if (Array.isArray(contactData.PHONE)) {
+          phones = contactData.PHONE
+        }
+        if (!leadName.value || leadName.value === entityData.TITLE) {
+          const cName = [contactData.NAME, contactData.LAST_NAME].filter(Boolean).join(' ')
+          if (cName) leadName.value = cName
+        }
+      } catch (e: any) {
+        console.warn('Failed to fetch bound contact:', e)
+      }
     }
 
     const bestPhone = phones.find((p: any) => p.VALUE_TYPE === 'MOBILE') || phones.find((p: any) => p.VALUE_TYPE === 'WORK') || phones[0]
