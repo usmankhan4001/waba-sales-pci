@@ -236,24 +236,23 @@ async function send() {
     <div v-else class="flex flex-1 overflow-hidden">
       <!-- Left Pane: Configuration -->
       <div class="w-1/2 flex flex-col border-r bg-white overflow-y-auto">
-        <div class="p-6 border-b flex justify-between items-center bg-gray-50 sticky top-0 z-10 shadow-sm">
+        <div class="px-5 py-4 border-b flex justify-between items-center bg-gray-50 sticky top-0 z-10 shadow-sm">
           <div>
-            <h2 class="text-xl font-semibold text-gray-800">Send WhatsApp Material</h2>
-            <p class="text-gray-500 mt-1">Select a project and the materials you want to send.</p>
+            <h2 class="text-lg font-semibold text-gray-800">Send WhatsApp Material</h2>
           </div>
           <B24Button :to="`${config.public.backendUrl}/analytics`" target="_blank" color="primary" variant="light" size="sm">Analytics</B24Button>
         </div>
         
-        <div class="p-6 space-y-6 bg-gray-50/50">
+        <div class="p-4 space-y-4 bg-gray-50/50">
           <!-- Step 1: Project & Contact -->
-          <B24Card>
+          <B24Card class="shadow-sm">
             <template #header>
-              <div class="flex items-center gap-2 font-medium text-gray-800">
-                <span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span> Project & Lead Details
+              <div class="flex items-center gap-2 font-medium text-gray-800 text-sm">
+                <span class="bg-blue-100 text-blue-700 w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span> Project & Contact
               </div>
             </template>
-            <div class="space-y-4">
-              <B24FormField label="Select Project">
+            <div class="grid grid-cols-3 gap-3">
+              <B24FormField label="Select Project" class="col-span-3">
                 <B24Select
                   v-model="selectedProjectId"
                   :items="projects.map((p) => ({ label: p.title, value: p.id }))"
@@ -261,31 +260,29 @@ async function send() {
                   class="w-full"
                 />
               </B24FormField>
-              <div class="grid grid-cols-2 gap-4">
-                <B24FormField label="Lead WhatsApp">
-                  <B24Input :model-value="leadPhone || 'No phone number'" disabled />
-                </B24FormField>
-                <B24FormField label="Your Contact Number">
-                  <B24Input v-model="ctaNumber" placeholder="+9715xxxxxxxx" />
-                </B24FormField>
-              </div>
+              <B24FormField label="Lead WhatsApp" class="col-span-1">
+                <B24Input :model-value="leadPhone || 'No phone number'" disabled />
+              </B24FormField>
+              <B24FormField label="Your Contact Number" class="col-span-2">
+                <B24Input v-model="ctaNumber" placeholder="+9715xxxxxxxx" />
+              </B24FormField>
             </div>
           </B24Card>
 
           <!-- Step 2: Content Selection -->
-          <B24Card>
+          <B24Card class="shadow-sm">
             <template #header>
-              <div class="flex items-center gap-2 font-medium text-gray-800">
-                <span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-xs">2</span> Select Content to Send
+              <div class="flex items-center gap-2 font-medium text-gray-800 text-sm">
+                <span class="bg-blue-100 text-blue-700 w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span> Select Content
               </div>
             </template>
-            <div class="space-y-4">
-              <div class="grid grid-cols-2 gap-3">
-                <label v-for="(label, type) in MESSAGE_TYPE_LABELS" :key="type" class="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition" :class="{'border-blue-500 bg-blue-50': selectedMessageTypes.includes(type as MessageType)}">
+            <div class="space-y-3">
+              <div class="flex flex-wrap gap-2">
+                <label v-for="(label, type) in MESSAGE_TYPE_LABELS" :key="type" class="flex items-center px-3 py-1.5 border rounded-lg cursor-pointer hover:bg-gray-50 transition text-xs" :class="{'border-blue-500 bg-blue-50': selectedMessageTypes.includes(type as MessageType)}">
                   <B24Checkbox
                     :model-value="selectedMessageTypes.includes(type as MessageType)"
                     @update:model-value="(v) => toggleMessageType(type as MessageType, Boolean(v))"
-                    class="mr-3"
+                    class="mr-2"
                   />
                   <span class="font-medium text-gray-700">{{ label }}</span>
                 </label>
@@ -293,14 +290,13 @@ async function send() {
 
               <B24Alert v-if="fileLoadError" color="air-primary-alert" :title="fileLoadError" />
 
-              <div v-if="selectedProjectId && mediaTypesSelected.length" class="mt-4 space-y-4 bg-gray-50 p-4 rounded-lg border">
-                <h4 class="font-medium text-gray-700 border-b pb-2">Available Files in Project Folder</h4>
-                <div v-for="type in mediaTypesSelected" :key="type" class="space-y-2">
-                  <div class="font-medium text-gray-600 text-xs uppercase tracking-wider">{{ MESSAGE_TYPE_LABELS[type] }}</div>
-                  <div v-if="!filesByType[type]?.length" class="text-gray-400 italic text-sm">No files found.</div>
-                  <div v-for="f in filesByType[type]" :key="f.id" class="flex items-center gap-2">
+              <div v-if="selectedProjectId && mediaTypesSelected.length" class="mt-2 space-y-3 bg-gray-50 p-3 rounded-lg border">
+                <div v-for="type in mediaTypesSelected" :key="type" class="space-y-1">
+                  <div class="font-medium text-gray-600 text-[10px] uppercase tracking-wider">{{ MESSAGE_TYPE_LABELS[type] }}</div>
+                  <div v-if="!filesByType[type]?.length" class="text-gray-400 italic text-xs">No files found.</div>
+                  <div v-for="f in filesByType[type]" :key="f.id" class="flex items-center gap-2 text-xs">
                     <B24Checkbox :model-value="selectedFileIds.includes(f.id)" @update:model-value="(v) => toggleFile(f.id, Boolean(v))" />
-                    <span class="text-gray-700">{{ f.name }}</span>
+                    <span class="text-gray-700 truncate" :title="f.name">{{ f.name }}</span>
                   </div>
                 </div>
               </div>
@@ -308,20 +304,20 @@ async function send() {
           </B24Card>
 
           <!-- Step 3: Message Customization -->
-          <B24Card>
+          <B24Card class="shadow-sm">
             <template #header>
-              <div class="flex items-center gap-2 font-medium text-gray-800">
-                <span class="bg-blue-100 text-blue-700 w-6 h-6 rounded-full flex items-center justify-center text-xs">3</span> Customize Message
+              <div class="flex items-center gap-2 font-medium text-gray-800 text-sm">
+                <span class="bg-blue-100 text-blue-700 w-5 h-5 rounded-full flex items-center justify-center text-xs">3</span> Customize Message
               </div>
             </template>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="grid grid-cols-2 gap-3">
               <B24FormField label="Client Name">
                 <B24Input v-model="clientName" />
               </B24FormField>
               <B24FormField label="Project Reference">
                 <B24Input v-model="projectText" />
               </B24FormField>
-              <B24FormField label="Executive Signature" class="md:col-span-2">
+              <B24FormField label="Executive Signature" class="col-span-2">
                 <B24Input v-model="executiveSignature" />
               </B24FormField>
             </div>
