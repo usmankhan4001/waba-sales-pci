@@ -154,7 +154,8 @@ router.post('/', async (req, res) => {
 
     const phones = await resolveEntityPhones(domain, accessToken, entityData);
     const bestPhone = pickBestPhone(phones);
-    const phone = bestPhone?.VALUE;
+    // Sanitize phone: remove '+' and any non-digit characters (spaces, dashes, etc.)
+    const phone = bestPhone?.VALUE ? bestPhone.VALUE.replace(/\D/g, '') : null;
     
     if (!phone) return res.status(400).json({ error: 'CRM record has no phone number' });
 
