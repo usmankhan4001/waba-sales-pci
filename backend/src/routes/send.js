@@ -50,7 +50,8 @@ async function logActivity(domain, accessToken, { leadId, entityTypeId, responsi
       fields: {
         OWNER_TYPE_ID: entityTypeId,
         OWNER_ID: leadId,
-        TYPE_ID: 2,
+        PROVIDER_ID: 'REST_APP',
+        PROVIDER_TYPE_ID: 'APP',
         SUBJECT: subject,
         DESCRIPTION: description,
         DESCRIPTION_TYPE: 1,
@@ -132,8 +133,11 @@ router.post('/', async (req, res) => {
     files = [],
   } = req.body;
 
-  if (!domain || !accessToken || !leadId || !ctaNumber || (!includeContactNow && files.length === 0)) {
+  if (!domain || !accessToken || !leadId || !ctaNumber || (!includeContactNow && (!files || files.length === 0))) {
     return res.status(400).json({ error: 'domain, accessToken, leadId, ctaNumber and at least one item to send are required' });
+  }
+  if (files && !Array.isArray(files)) {
+    return res.status(400).json({ error: 'files must be an array' });
   }
 
   try {
@@ -171,8 +175,9 @@ router.post('/', async (req, res) => {
 
     await rateLimiter.checkAndIncrement(responsibleId, ctaNumber);
 
+    const templateArray = Array.isArray(approvedTemplates) ? approvedTemplates : approvedTemplates?.data || [];
     const approvedNames = new Set(
-      (Array.isArray(approvedTemplates) ? approvedTemplates : approvedTemplates?.data || [])
+      templateArray
         .filter((t) => (t.status || t.quality || '').toString().toLowerCase() === 'approved')
         .map((t) => t.name || t.template_name)
     );
@@ -286,7 +291,7 @@ router.post('/', async (req, res) => {
           console.error(`[send] logActivity failed for lead ${leadId}, item ${label}:`, err.response?.data || err.message);
         }
         try {
-          analyticsLog.record({ ...analyticsBase, item: r.item, type: r.type || 'contact_now', success: r.success, error: r.error || null });
+          await analyticsLog.record({ ...analyticsBase, item: r.item, type: r.type || 'contact_now', success: r.success, error: r.error || null });
         } catch (err) {
           console.error(`[send] analyticsLog.record failed for lead ${leadId}, item ${label}:`, err.message);
         }

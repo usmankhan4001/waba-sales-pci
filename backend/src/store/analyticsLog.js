@@ -1,13 +1,17 @@
 const fs = require('fs');
 const path = require('path');
 
+const { withFileLock } = require('./withFileLock');
+
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const FILE = path.join(DATA_DIR, 'analytics.jsonl');
 
 /** Append-only log, one JSON object per line - one entry per template message result. */
-function record(entry) {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.appendFileSync(FILE, JSON.stringify({ ...entry, timestamp: new Date().toISOString() }) + '\n');
+async function record(entry) {
+  return withFileLock(FILE, () => {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.appendFileSync(FILE, JSON.stringify({ ...entry, timestamp: new Date().toISOString() }) + '\n');
+  });
 }
 
 function readAll() {

@@ -2,16 +2,25 @@ const axios = require('axios');
 const config = require('../config');
 const tokenStore = require('../store/tokenStore');
 
+let inFlightLogin = null;
 async function login() {
-  const form = new URLSearchParams();
-  form.append('email', config.oncloud.email);
-  form.append('password', config.oncloud.password);
+  if (inFlightLogin) return inFlightLogin;
+  inFlightLogin = (async () => {
+    const form = new URLSearchParams();
+    form.append('email', config.oncloud.email);
+    form.append('password', config.oncloud.password);
 
-  const { data } = await axios.post(`${config.oncloud.baseUrl}/api/login`, form);
-  const token = data.token || data.data?.token;
-  if (!token) throw new Error('OnCloud login did not return a token');
-  tokenStore.saveOncloudToken(token);
-  return token;
+    const { data } = await axios.post(`${config.oncloud.baseUrl}/api/login`, form);
+    const token = data.token || data.data?.token;
+    if (!token) throw new Error('OnCloud login did not return a token');
+    tokenStore.saveOncloudToken(token);
+    return token;
+  })();
+  try {
+    return await inFlightLogin;
+  } finally {
+    inFlightLogin = null;
+  }
 }
 
 async function getToken() {
@@ -46,6 +55,11 @@ async function sendTemplateMessageOnce({ phone, templateName, templateLanguage =
     template_language: templateLanguage,
     components,
   });
+  
+  if (data && (data.status === 'error' || data.error)) {
+    throw new Error(data.message || data.error || 'OnCloud API returned an error');
+  }
+  
   return data;
 }
 

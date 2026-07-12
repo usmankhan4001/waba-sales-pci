@@ -13,7 +13,12 @@ function todayKey(userId) {
 
 function read() {
   if (!fs.existsSync(FILE)) return {};
-  return JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  } catch (err) {
+    console.warn(`[rateLimiter] Error parsing ${FILE}, resetting to empty:`, err.message);
+    return {};
+  }
 }
 
 function write(data) {

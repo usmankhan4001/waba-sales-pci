@@ -19,7 +19,7 @@ const OPT_OUT_PATTERN = /^\s*(stop|unsubscribe)\s*$/i;
  * confirm the real shape against a live webhook delivery and trim this once known.
  */
 router.post('/', async (req, res) => {
-  if (config.oncloudWebhookSecret && req.query.secret !== config.oncloudWebhookSecret) {
+  if (!config.oncloudWebhookSecret || req.query.secret !== config.oncloudWebhookSecret) {
     return res.status(401).json({ error: 'invalid secret' });
   }
 

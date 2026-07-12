@@ -38,12 +38,12 @@ const sending = ref(false)
 const results = ref<{ item: string; success: boolean; error?: string }[] | null>(null)
 
 const TYPE_BY_KEYWORD: [RegExp, DriveFile['type']][] = [
+  [/layout/i, 'layout'],
+  [/brochure/i, 'brochure'],
+  [/video/i, 'video'],
   [/\.(mp4|mov)$/i, 'video'],
   [/\.pdf$/i, 'brochure'],
   [/\.(png|jpe?g|gif|webp)$/i, 'image'],
-  [/brochure/i, 'brochure'],
-  [/layout/i, 'layout'],
-  [/video/i, 'video'],
 ]
 
 function classify(name: string): DriveFile['type'] {
@@ -77,7 +77,7 @@ async function resolveEntityPhones(entityData: Record<string, any>) {
   for (const contactId of candidateContactIds) {
     if (phones.length > 0) break
     try {
-      const contactRes = await b24.callMethod('crm.contact.get', { id: contactId })
+      const contactRes = await b24.actions.v2.call.make({ method: 'crm.contact.get', params: { id: contactId } })
       const contactData = contactRes.getData().result || {}
       phones = normalizePhones(contactData.PHONE)
       if (phones.length === 0 && contactData.FM?.PHONE) {
@@ -129,9 +129,9 @@ onMounted(async () => {
     entityTypeIdRef.value = entityTypeId
 
     const [entityRes, userRes, rootRes] = await Promise.all([
-      b24.callMethod(endpoint, { id: leadId.value }),
-      b24.callMethod('user.current', {}),
-      b24.callMethod('disk.folder.getchildren', { id: Number(config.public.projectsDriveRootFolderId) }),
+      b24.actions.v2.call.make({ method: endpoint, params: { id: leadId.value } }),
+      b24.actions.v2.call.make({ method: 'user.current', params: {} }),
+      b24.actions.v2.call.make({ method: 'disk.folder.getchildren', params: { id: Number(config.public.projectsDriveRootFolderId) } }),
     ])
 
     const entityData = entityRes.getData().result || {}
@@ -169,7 +169,7 @@ watch(selectedProjectId, async (id) => {
   if (!project) return
 
   try {
-    const res = await b24.callMethod('disk.folder.getchildren', { id })
+    const res = await b24.actions.v2.call.make({ method: 'disk.folder.getchildren', params: { id } })
     const children = res.getData().result || []
     files.value = children
       .filter((c: any) => c.TYPE === 'file')
@@ -249,7 +249,8 @@ const previewItems = computed(() => {
   return items
 })
 
-const canSend = computed(() => previewItems.value.length > 0 && ctaNumber.value.trim().length > 0 && !sending.value)
+const hasSelectedFiles = computed(() => previewItems.value.some(item => item.file))
+const canSend = computed(() => hasSelectedFiles.value && ctaNumber.value.trim().length > 0 && !sending.value)
 
 async function send() {
   sending.value = true
@@ -349,11 +350,10 @@ async function send() {
             <div class="pl-7 space-y-3">
               <div class="flex flex-wrap gap-2">
                 <label v-for="(label, type) in MESSAGE_TYPE_LABELS" :key="type" class="flex items-center px-3 py-1.5 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 transition text-xs select-none" :class="{'border-blue-400 bg-blue-50/30 text-blue-700': selectedMessageTypes.includes(type as MessageType)}">
-                  <input 
-                    type="checkbox" 
-                    :checked="selectedMessageTypes.includes(type as MessageType)" 
-                    @change="(e) => toggleMessageType(type as MessageType, (e.target as HTMLInputElement).checked)"
-                    class="mr-2 accent-blue-600"
+                  <B24Checkbox 
+                    :model-value="selectedMessageTypes.includes(type as MessageType)" 
+                    @update:model-value="(checked: boolean) => toggleMessageType(type as MessageType, checked)"
+                    class="mr-2"
                   />
                   <span class="font-medium">{{ label }}</span>
                 </label>
@@ -366,7 +366,7 @@ async function send() {
                   <div class="font-semibold text-gray-500 text-[10px] uppercase tracking-wider mb-1">{{ MESSAGE_TYPE_LABELS[type] }}</div>
                   <div v-if="!filesByType[type]?.length" class="text-gray-400 italic text-xs">No files found.</div>
                   <div v-for="f in filesByType[type]" :key="f.id" class="flex items-center gap-2 text-xs py-0.5">
-                    <input type="checkbox" :checked="selectedFileIds.includes(f.id)" @change="(e) => toggleFile(f.id, (e.target as HTMLInputElement).checked)" class="accent-blue-600 cursor-pointer" />
+                    <B24Checkbox :model-value="selectedFileIds.includes(f.id)" @update:model-value="(checked: boolean) => toggleFile(f.id, checked)" class="cursor-pointer" />
                     <span class="text-gray-700 truncate" :title="f.name">{{ f.name }}</span>
                   </div>
                 </div>

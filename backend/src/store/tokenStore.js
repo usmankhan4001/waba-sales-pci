@@ -7,7 +7,12 @@ const FILE = path.join(DATA_DIR, 'tokens.json');
 
 function readAll() {
   if (!fs.existsSync(FILE)) return {};
-  return JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  } catch (err) {
+    console.warn(`[tokenStore] Error parsing ${FILE}, resetting to empty:`, err.message);
+    return {};
+  }
 }
 
 function writeAll(data) {

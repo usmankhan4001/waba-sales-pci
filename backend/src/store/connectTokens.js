@@ -9,7 +9,12 @@ const TTL_MS = 24 * 60 * 60 * 1000; // FR-15/16: short-lived, generated fresh pe
 
 function read() {
   if (!fs.existsSync(FILE)) return {};
-  return JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  } catch (err) {
+    console.warn(`[connectTokens] Error parsing ${FILE}, resetting to empty:`, err.message);
+    return {};
+  }
 }
 
 function write(data) {

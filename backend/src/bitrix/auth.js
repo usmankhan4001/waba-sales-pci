@@ -39,7 +39,7 @@ async function refreshAuth(domain) {
     const updated = {
       ...auth,
       accessToken: data.access_token,
-      refreshToken: data.refresh_token,
+      refreshToken: data.refresh_token || auth.refreshToken,
       expiresAt: Date.now() + Number(data.expires_in || 3600) * 1000,
     };
     await tokenStore.saveBitrixAuth(domain, updated);
