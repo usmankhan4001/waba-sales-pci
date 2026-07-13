@@ -177,11 +177,16 @@ router.post('/', async (req, res) => {
     await rateLimiter.checkAndIncrement(responsibleId, ctaNumber);
 
     const templateArray = Array.isArray(approvedTemplates) ? approvedTemplates : approvedTemplates?.data || [];
-    const approvedNames = new Set(
+    // FR-14: map each approved template name -> its approved language code. The
+    // hardcoded 'en' previously caused Meta to silently reject the send when the
+    // template was approved under a different locale (e.g. en_US) - API reported
+    // success but the recipient never received the message.
+    const approvedTemplatesMap = new Map(
       templateArray
         .filter((t) => (t.status || t.quality || '').toString().toLowerCase() === 'approved')
-        .map((t) => t.name || t.template_name)
+        .map((t) => [t.name || t.template_name, (t.language || 'en').toString()])
     );
+    const approvedNames = new Set(approvedTemplatesMap.keys());
 
     // FR-10/11/12: every approved template's body takes 3 vars - client name, project name, executive signature.
     // Each is editable per-send from the frontend's preview screen, falling back to sensible defaults.
@@ -229,6 +234,7 @@ router.post('/', async (req, res) => {
         await oncloud.sendTemplateMessage({
           phone,
           templateName: CONTACT_NOW_TEMPLATE,
+          templateLanguage: approvedTemplatesMap.get(CONTACT_NOW_TEMPLATE) || 'en',
           components: [
             oncloud.imageHeaderComponent(coverImageLink),
             oncloud.textComponent(bodyVars),
@@ -259,6 +265,7 @@ router.post('/', async (req, res) => {
         await oncloud.sendTemplateMessage({
           phone,
           templateName: mapping.name,
+          templateLanguage: approvedTemplatesMap.get(mapping.name) || 'en',
           components: [mapping.build({ link, filename: file.filename }), oncloud.textComponent(bodyVars), oncloud.urlButtonComponent(connectToken)],
         });
         results.push({ item: file.filename || file.type, success: true, type: file.type });

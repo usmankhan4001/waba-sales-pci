@@ -55,11 +55,16 @@ async function sendTemplateMessageOnce({ phone, templateName, templateLanguage =
     template_language: templateLanguage,
     components,
   });
-  
-  if (data && (data.status === 'error' || data.error)) {
+
+  console.log(`[oncloud] sendtemplatemessage ${templateName} ->`, JSON.stringify(data));
+
+  // OnCloud returns a queued/success envelope even when Meta later rejects the
+  // message (e.g. language mismatch, bad params). Surface those as real errors so
+  // the UI stops reporting "sent" for messages the recipient never receives.
+  if (data && (data.status === 'error' || data.error || data.success === false)) {
     throw new Error(data.message || data.error || 'OnCloud API returned an error');
   }
-  
+
   return data;
 }
 
