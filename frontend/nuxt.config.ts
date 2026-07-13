@@ -7,7 +7,6 @@
 function resolveBackendUrl(): string {
   const url = process.env.NUXT_PUBLIC_BACKEND_URL
   if (!url && process.env.NODE_ENV === 'production') {
-    // eslint-disable-next-line no-console
     console.warn(
       '[nuxt.config] NUXT_PUBLIC_BACKEND_URL is not set at build time - relying on it being set as a runtime env var instead (see server/plugins/checkConfig.ts).'
     )
@@ -19,7 +18,7 @@ function resolveBackendUrl(): string {
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
-  modules: ['@bitrix24/b24ui-nuxt'],
+  modules: ['@bitrix24/b24ui-nuxt', '@nuxt/eslint'],
   css: ['~/assets/css/main.css'],
   runtimeConfig: {
     public: {

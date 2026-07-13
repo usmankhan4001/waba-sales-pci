@@ -1,7 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 const config = require('../config');
-const { callMethodWithToken, normalizeDomain } = require('../bitrix/client');
+const bitrixClient = require('../bitrix/client');
 const oncloud = require('../oncloud/client');
 const rateLimiter = require('../store/rateLimiter');
 const connectTokens = require('../store/connectTokens');
@@ -65,7 +65,7 @@ async function resolveFileDownloadUrl(domain, accessToken, fileId, filename = 'f
 /** FR-17: project's Drive cover image if one exists, else the fixed default brand cover. */
 async function resolveCoverImageLink(domain, accessToken, projectDriveFolderId) {
   if (projectDriveFolderId) {
-    const childrenResp = await callMethodWithToken(domain, 'disk.folder.getchildren', { id: projectDriveFolderId }, accessToken);
+    const childrenResp = await bitrixClient.callMethodWithToken(domain, 'disk.folder.getchildren', { id: projectDriveFolderId }, accessToken);
     const cover = (childrenResp.result || []).find((c) => c.TYPE === 'file' && /cover/i.test(c.NAME));
     if (cover) {
       const link = await resolveFileDownloadUrl(domain, accessToken, cover.ID, cover.NAME);
@@ -77,7 +77,7 @@ async function resolveCoverImageLink(domain, accessToken, projectDriveFolderId) 
 
 /** One CRM Activity per item, so the activity panel shows each media message individually. */
 async function logActivity(domain, accessToken, { leadId, entityTypeId, responsibleId, subject, description, phone }) {
-  await callMethodWithToken(
+  await bitrixClient.callMethodWithToken(
     domain,
     'crm.activity.add',
     {
@@ -124,7 +124,7 @@ async function resolveEntityPhones(domain, accessToken, entityData) {
   for (const contactId of candidateContactIds) {
     if (phones.length > 0) break;
     try {
-      const contactResp = await callMethodWithToken(domain, 'crm.contact.get', { id: contactId }, accessToken);
+      const contactResp = await bitrixClient.callMethodWithToken(domain, 'crm.contact.get', { id: contactId }, accessToken);
       const contactData = contactResp.result || {};
       phones = normalizePhones(contactData.PHONE);
       if (phones.length === 0 && contactData.FM?.PHONE) {
@@ -177,7 +177,7 @@ router.post('/', async (req, res) => {
   // frontend) - previously nothing verified that domain was actually an installed portal
   // this app knows about before doing work, so any authenticated portal user anywhere
   // could trigger sends against an unrelated/uninstalled domain.
-  if (!tokenStore.getBitrixAuth(normalizeDomain(domain))) {
+  if (!tokenStore.getBitrixAuth(bitrixClient.normalizeDomain(domain))) {
     return res.status(403).json({ error: 'This Bitrix24 portal is not installed / recognized by this app' });
   }
 
@@ -195,7 +195,7 @@ router.post('/', async (req, res) => {
     else if (entityTypeId === 3) endpoint = 'crm.contact.get';
 
     const [entityResp, approvedTemplates] = await Promise.all([
-      callMethodWithToken(domain, endpoint, { id: leadId }, accessToken),
+      bitrixClient.callMethodWithToken(domain, endpoint, { id: leadId }, accessToken),
       oncloud.getTemplates(),
     ]);
     const entityData = entityResp.result;

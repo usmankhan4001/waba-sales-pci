@@ -108,7 +108,7 @@ onMounted(async () => {
     let placementStr = ''
     try {
       placementStr = String((b24.placement.info as any)?.placement || options?.PLACEMENT || '').toUpperCase()
-    } catch (e) {
+    } catch {
       placementStr = String(options?.PLACEMENT || '').toUpperCase()
     }
 
@@ -342,8 +342,8 @@ async function send() {
                 <label v-for="(label, type) in MESSAGE_TYPE_LABELS" :key="type" class="flex items-center px-3 py-1.5 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 transition text-xs select-none" :class="{'border-blue-400 bg-blue-50/30 text-blue-700': selectedMessageTypes.includes(type as MessageType)}">
                   <B24Checkbox 
                     :model-value="selectedMessageTypes.includes(type as MessageType)" 
-                    @update:model-value="(checked: boolean) => toggleMessageType(type as MessageType, checked)"
                     class="mr-2"
+                    @update:model-value="(checked: boolean) => toggleMessageType(type as MessageType, checked)"
                   />
                   <span class="font-medium">{{ label }}</span>
                 </label>
@@ -356,7 +356,7 @@ async function send() {
                   <div class="font-semibold text-gray-500 text-[10px] uppercase tracking-wider mb-1">{{ MESSAGE_TYPE_LABELS[type] }}</div>
                   <div v-if="!filesByType[type]?.length" class="text-gray-400 italic text-xs">No files found.</div>
                   <div v-for="f in filesByType[type]" :key="f.id" class="flex items-center gap-2 text-xs py-0.5">
-                    <B24Checkbox :model-value="selectedFileIds.includes(f.id)" @update:model-value="(checked: boolean) => toggleFile(f.id, checked)" class="cursor-pointer" />
+                    <B24Checkbox :model-value="selectedFileIds.includes(f.id)" class="cursor-pointer" @update:model-value="(checked: boolean) => toggleFile(f.id, checked)" />
                     <span class="text-gray-700 truncate" :title="f.name">{{ f.name }}</span>
                   </div>
                 </div>
