@@ -249,8 +249,7 @@ const previewItems = computed(() => {
   return items
 })
 
-const hasSelectedFiles = computed(() => previewItems.value.some(item => item.file))
-const canSend = computed(() => hasSelectedFiles.value && ctaNumber.value.trim().length > 0 && !sending.value)
+const canSend = computed(() => previewItems.value.length > 0 && ctaNumber.value.trim().length > 0 && !sending.value)
 
 async function send() {
   sending.value = true
