@@ -23,7 +23,7 @@ const MEDIA_TEMPLATES = {
 // The OnCloud API will hit our public /media/:token endpoint, which then proxies
 // the download using the secure Bitrix24 app token.
 async function resolveFileDownloadUrl(domain, accessToken, fileId, filename = 'file') {
-  const token = mediaTokens.createToken(domain, fileId, filename);
+  const token = mediaTokens.createToken(domain, fileId, filename, accessToken);
   return `${config.baseUrl}/media/${token}`;
 }
 

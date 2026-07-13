@@ -1,7 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const mediaTokens = require('../store/mediaTokens');
-const { callMethod } = require('../bitrix/client');
+const { callMethodWithToken } = require('../bitrix/client');
 
 const router = express.Router();
 
@@ -14,8 +14,11 @@ router.get('/:token', async (req, res) => {
   }
 
   try {
-    // 1. Fetch the DOWNLOAD_URL from Bitrix24
-    const fileResp = await callMethod(data.domain, 'disk.file.get', { id: data.fileId });
+    // 1. Fetch the DOWNLOAD_URL from Bitrix24, using the caller's own live access token
+    // (captured at send time) rather than the backend's persisted install-level admin
+    // token - that token lives in tokens.json, which doesn't survive a redeploy without
+    // a mounted volume, silently breaking every file download until manually reinstalled.
+    const fileResp = await callMethodWithToken(data.domain, 'disk.file.get', { id: data.fileId }, data.accessToken);
     const downloadUrl = fileResp.result?.DOWNLOAD_URL;
 
     if (!downloadUrl) {
