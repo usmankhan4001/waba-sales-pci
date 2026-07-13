@@ -17,6 +17,8 @@ const connectRouter = require('./routes/connect');
 const mediaRouter = require('./routes/media');
 const oncloudWebhookRouter = require('./routes/oncloudWebhook');
 const analyticsRouter = require('./routes/analytics');
+const leadDataRouter = require('./routes/leadData');
+const messageTypesRouter = require('./routes/messageTypes');
 const reconcileDelivery = require('./jobs/reconcileDelivery');
 
 // A single unhandled rejection/exception anywhere in the app previously took the whole
@@ -104,6 +106,8 @@ app.use('/connect', connectLimiter, connectRouter);
 app.use('/media', mediaLimiter, mediaRouter);
 app.use('/api/oncloud/webhook', webhookLimiter, oncloudWebhookRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/lead-data', leadDataRouter);
+app.use('/api/message-types', messageTypesRouter);
 
 // Bitrix24 requires placement.bind's HANDLER to be on the same domain as the app's
 // registered handler URL - so the frontend (a separate Dokploy app/domain) is proxied

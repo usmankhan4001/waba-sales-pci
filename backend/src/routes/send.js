@@ -10,17 +10,18 @@ const suppressionList = require('../store/suppressionList');
 const analyticsLog = require('../store/analyticsLog');
 const idempotency = require('../store/idempotency');
 const tokenStore = require('../store/tokenStore');
-const logger = require('../lib/logger');
+const { MESSAGE_TYPES } = require('../config/messageTypes');
+const leadDataService = require('../services/leadData');
 
 const router = express.Router();
 router.use(express.json());
 
-// Real approved OnCloud template names in this OnCloud account.
-// image/layout removed: no such templates exist yet in Meta - re-add once created & approved.
-const CONTACT_NOW_TEMPLATE = 'contact_now_sales_pci';
+// Real approved OnCloud template names in this OnCloud account, sourced from the single
+// config that also feeds GET /api/message-types (see config/messageTypes.js).
+const CONTACT_NOW_TEMPLATE = MESSAGE_TYPES.contact_now.templateName;
 const MEDIA_TEMPLATES = {
-  brochure: { name: 'send_brochure_doc_sales_pci', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
-  video: { name: 'send_project_video_sales_pci', build: (file) => oncloud.videoHeaderComponent(file.link) },
+  brochure: { name: MESSAGE_TYPES.brochure.templateName, build: (file) => MESSAGE_TYPES.brochure.buildComponent(oncloud, file) },
+  video: { name: MESSAGE_TYPES.video.templateName, build: (file) => MESSAGE_TYPES.video.buildComponent(oncloud, file) },
 };
 
 const sendRequestSchema = z
@@ -98,46 +99,6 @@ async function logActivity(domain, accessToken, { leadId, entityTypeId, responsi
   );
 }
 
-function normalizePhones(rawPhones) {
-  if (Array.isArray(rawPhones)) return rawPhones;
-  if (!rawPhones || typeof rawPhones !== 'object') return [];
-  return Object.values(rawPhones).filter(Boolean);
-}
-
-function pickBestPhone(phones) {
-  return phones.find((p) => p.VALUE_TYPE === 'MOBILE') || phones.find((p) => p.VALUE_TYPE === 'WORK') || phones[0] || null;
-}
-
-async function resolveEntityPhones(domain, accessToken, entityData) {
-  let phones = normalizePhones(entityData.PHONE);
-
-  if (phones.length === 0 && entityData.FM?.PHONE) {
-    phones = normalizePhones(entityData.FM.PHONE);
-  }
-
-  const candidateContactIds = [
-    entityData.CONTACT_ID,
-    ...(Array.isArray(entityData.CONTACT_IDS) ? entityData.CONTACT_IDS : []),
-    ...(Array.isArray(entityData.CONTACT_BINDINGS) ? entityData.CONTACT_BINDINGS.map((binding) => binding.CONTACT_ID) : []),
-  ].filter(Boolean);
-
-  for (const contactId of candidateContactIds) {
-    if (phones.length > 0) break;
-    try {
-      const contactResp = await bitrixClient.callMethodWithToken(domain, 'crm.contact.get', { id: contactId }, accessToken);
-      const contactData = contactResp.result || {};
-      phones = normalizePhones(contactData.PHONE);
-      if (phones.length === 0 && contactData.FM?.PHONE) {
-        phones = normalizePhones(contactData.FM.PHONE);
-      }
-    } catch (err) {
-      logger.warn({ contactId, err }, '[send] failed to fetch linked contact');
-    }
-  }
-
-  return phones;
-}
-
 /**
  * Body: {
  *   domain, accessToken,          // from BX24.getAuth() on the frontend
@@ -190,22 +151,13 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    let endpoint = 'crm.lead.get';
-    if (entityTypeId === 2) endpoint = 'crm.deal.get';
-    else if (entityTypeId === 3) endpoint = 'crm.contact.get';
-
-    const [entityResp, approvedTemplates] = await Promise.all([
-      bitrixClient.callMethodWithToken(domain, endpoint, { id: leadId }, accessToken),
+    const [entityResult, approvedTemplates] = await Promise.all([
+      leadDataService.fetchEntityWithPhone(domain, accessToken, leadId, entityTypeId),
       oncloud.getTemplates(),
     ]);
-    const entityData = entityResp.result;
-    if (!entityData) return res.status(404).json({ error: 'CRM record not found' });
+    if (!entityResult) return res.status(404).json({ error: 'CRM record not found' });
+    const { entityData, phone } = entityResult;
 
-    const phones = await resolveEntityPhones(domain, accessToken, entityData);
-    const bestPhone = pickBestPhone(phones);
-    // Sanitize phone: remove '+' and any non-digit characters (spaces, dashes, etc.)
-    const phone = bestPhone?.VALUE ? bestPhone.VALUE.replace(/\D/g, '') : null;
-    
     if (!phone) return res.status(400).json({ error: 'CRM record has no phone number' });
 
     const responsibleId = entityData.ASSIGNED_BY_ID;
