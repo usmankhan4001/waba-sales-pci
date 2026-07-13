@@ -1,10 +1,15 @@
-// The localhost:3000 fallback below is only safe for local dev - if it silently ships in a
-// production build, every Bitrix tab would try to call a backend that doesn't exist there.
+// NOTE: nuxt.config.ts is evaluated during `nuxt build` (a separate step/environment from
+// the running container), and Dokploy only injects NUXT_PUBLIC_BACKEND_URL as a *runtime*
+// container env var, not a build-time one - a build-time throw here broke a real deploy.
+// Nitro already re-reads NUXT_PUBLIC_* env vars at server start and overrides whatever was
+// baked in at build time, so the localhost:3000 default below only matters for local `nuxt
+// dev` - it's never actually served in production as long as the runtime env var is set.
 function resolveBackendUrl(): string {
   const url = process.env.NUXT_PUBLIC_BACKEND_URL
   if (!url && process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'NUXT_PUBLIC_BACKEND_URL must be set in production - refusing to silently fall back to http://localhost:3000.'
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[nuxt.config] NUXT_PUBLIC_BACKEND_URL is not set at build time - relying on it being set as a runtime env var instead (see server/plugins/checkConfig.ts).'
     )
   }
   return url || 'http://localhost:3000'
