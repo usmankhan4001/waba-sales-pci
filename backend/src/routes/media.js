@@ -1,7 +1,6 @@
 const express = require('express');
 const axios = require('axios');
 const mediaTokens = require('../store/mediaTokens');
-const { getValidAuth } = require('../bitrix/auth');
 const { callMethod } = require('../bitrix/client');
 
 const router = express.Router();
@@ -15,10 +14,7 @@ router.get('/:token', async (req, res) => {
   }
 
   try {
-    // 1. Get the app's valid admin token for the domain
-    const auth = await getValidAuth(data.domain);
-    
-    // 2. Fetch the DOWNLOAD_URL from Bitrix24
+    // 1. Fetch the DOWNLOAD_URL from Bitrix24
     const fileResp = await callMethod(data.domain, 'disk.file.get', { id: data.fileId });
     const downloadUrl = fileResp.result?.DOWNLOAD_URL;
 
@@ -26,11 +22,12 @@ router.get('/:token', async (req, res) => {
       return res.status(404).send('File not found in Drive.');
     }
 
-    // 3. Proxy the download, passing the auth token to bypass cookie requirement
+    // 2. Proxy the download. DOWNLOAD_URL from disk.file.get is already self-signed
+    // (embeds its own auth+token query params) - do not add our own auth param, it
+    // collides with the URL's signed token and breaks the download.
     const response = await axios({
       method: 'GET',
       url: downloadUrl,
-      params: { auth: auth.accessToken },
       responseType: 'stream'
     });
 
