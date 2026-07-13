@@ -1,6 +1,7 @@
 const express = require('express');
+const { z } = require('zod');
 const config = require('../config');
-const { callMethodWithToken } = require('../bitrix/client');
+const { callMethodWithToken, normalizeDomain } = require('../bitrix/client');
 const oncloud = require('../oncloud/client');
 const rateLimiter = require('../store/rateLimiter');
 const connectTokens = require('../store/connectTokens');
@@ -8,6 +9,7 @@ const mediaTokens = require('../store/mediaTokens');
 const suppressionList = require('../store/suppressionList');
 const analyticsLog = require('../store/analyticsLog');
 const idempotency = require('../store/idempotency');
+const tokenStore = require('../store/tokenStore');
 
 const router = express.Router();
 router.use(express.json());
@@ -19,6 +21,37 @@ const MEDIA_TEMPLATES = {
   brochure: { name: 'send_brochure_doc_sales_pci', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
   video: { name: 'send_project_video_sales_pci', build: (file) => oncloud.videoHeaderComponent(file.link) },
 };
+
+const sendRequestSchema = z
+  .object({
+    domain: z.string().min(1, 'domain is required'),
+    accessToken: z.string().min(1, 'accessToken is required'),
+    leadId: z.union([z.string(), z.number()]),
+    entityTypeId: z.number().int().optional().default(1),
+    projectName: z.string().optional(),
+    projectDriveFolderId: z.union([z.string(), z.number()]).optional(),
+    ctaNumber: z.string().min(1, 'ctaNumber is required'),
+    defaultCtaNumber: z.string().optional(),
+    executiveName: z.string().optional(),
+    clientName: z.string().optional(),
+    projectText: z.string().optional(),
+    executiveSignature: z.string().optional(),
+    includeContactNow: z.boolean().optional().default(true),
+    files: z
+      .array(
+        z.object({
+          id: z.union([z.string(), z.number()]),
+          type: z.string(),
+          filename: z.string().optional(),
+        })
+      )
+      .optional()
+      .default([]),
+  })
+  .refine((data) => data.includeContactNow || data.files.length > 0, {
+    message: 'at least one item to send is required (includeContactNow or files)',
+    path: ['files'],
+  });
 
 // We generate a short-lived proxy token mapped to this file.
 // The OnCloud API will hit our public /media/:token endpoint, which then proxies
@@ -116,11 +149,17 @@ async function resolveEntityPhones(domain, accessToken, entityData) {
  * }
  */
 router.post('/', async (req, res) => {
+  const parsed = sendRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: parsed.error.issues.map((issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`).join('; '),
+    });
+  }
   const {
     domain,
     accessToken,
     leadId,
-    entityTypeId = 1,
+    entityTypeId,
     projectName,
     projectDriveFolderId,
     ctaNumber,
@@ -129,15 +168,16 @@ router.post('/', async (req, res) => {
     clientName,
     projectText,
     executiveSignature,
-    includeContactNow = true,
-    files = [],
-  } = req.body;
+    includeContactNow,
+    files,
+  } = parsed.data;
 
-  if (!domain || !accessToken || !leadId || !ctaNumber || (!includeContactNow && (!files || files.length === 0))) {
-    return res.status(400).json({ error: 'domain, accessToken, leadId, ctaNumber and at least one item to send are required' });
-  }
-  if (files && !Array.isArray(files)) {
-    return res.status(400).json({ error: 'files must be an array' });
+  // The caller supplies its own domain/accessToken (from BX24.getAuthData() on the
+  // frontend) - previously nothing verified that domain was actually an installed portal
+  // this app knows about before doing work, so any authenticated portal user anywhere
+  // could trigger sends against an unrelated/uninstalled domain.
+  if (!tokenStore.getBitrixAuth(normalizeDomain(domain))) {
+    return res.status(403).json({ error: 'This Bitrix24 portal is not installed / recognized by this app' });
   }
 
   // A frontend retry on a network blip (timeout, dropped connection) must not re-send the

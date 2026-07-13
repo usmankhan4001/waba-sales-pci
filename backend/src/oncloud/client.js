@@ -89,7 +89,14 @@ async function sendTemplateMessageOnce({ phone, templateName, templateLanguage =
     components,
   });
 
-  console.log(`[oncloud] sendtemplatemessage ${templateName} ->`, JSON.stringify(data));
+  // Log only a curated safe subset - OnCloud's response shape isn't formally documented,
+  // and echoing the raw body risks leaking the phone number or message content into logs.
+  console.log(`[oncloud] sendtemplatemessage ${templateName} ->`, {
+    status: data?.status,
+    success: data?.success,
+    message_id: data?.message_id,
+    error: data?.error || data?.message || null,
+  });
 
   // OnCloud returns a queued/success envelope even when Meta later rejects the
   // message (e.g. language mismatch, bad params). Surface those as real errors so

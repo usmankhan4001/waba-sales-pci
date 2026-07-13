@@ -1,0 +1,11 @@
+{
+  "name": "waba-bitrix24-monorepo",
+  "private": true,
+  "description": "Root package.json for repo-wide dev tooling only (git hooks) - backend/ and frontend/ remain independently deployed apps with their own package.json.",
+  "devDependencies": {
+    "husky": "^9.1.7"
+  },
+  "scripts": {
+    "prepare": "husky"
+  }
+}

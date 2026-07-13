@@ -1,6 +1,7 @@
 const express = require('express');
 const config = require('../config');
 const connectTokens = require('../store/connectTokens');
+const { maskPhone } = require('../lib/redact');
 
 const router = express.Router();
 
@@ -31,7 +32,7 @@ router.get('/:token', async (req, res) => {
     }
 
     const safeNumber = sanitizePhoneForWaMe(number);
-    console.log(`[connect] token ${token} -> wa.me/${safeNumber}`);
+    console.log(`[connect] token ${token} -> wa.me/${maskPhone(safeNumber)}`);
     res.redirect(302, `https://wa.me/${safeNumber}`);
   } catch (err) {
     console.error(`[connect] error resolving token ${token}:`, err.message);

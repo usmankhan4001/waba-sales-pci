@@ -55,4 +55,4 @@ async function callMethodWithToken(domain, method, params = {}, accessToken) {
   return data;
 }
 
-module.exports = { callMethod, callMethodWithToken };
+module.exports = { callMethod, callMethodWithToken, normalizeDomain };

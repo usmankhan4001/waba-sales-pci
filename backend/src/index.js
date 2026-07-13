@@ -1,6 +1,8 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const config = require('./config');
 
@@ -27,6 +29,19 @@ process.on('uncaughtException', (err) => {
 
 const app = express();
 
+// This app is deliberately loaded in a cross-origin iframe by arbitrary Bitrix24 portals
+// (that's the entire point of the CRM tab placement), and install.js's success page loads
+// Bitrix's own BX24 SDK script inline - helmet's default frameguard (X-Frame-Options) and
+// contentSecurityPolicy would both break that, so they're explicitly disabled here while
+// keeping helmet's other protections (hidePoweredBy, noSniff, etc).
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    frameguard: false,
+  })
+);
+
 // The frontend's page can load from either its own direct domain or the backend's
 // proxied domain (see placement.bind below) - allow API calls from both defensively.
 app.use(
@@ -38,15 +53,23 @@ app.use(
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
+// These three are hit by parties outside our control (WhatsApp recipients tapping a CTA
+// button, Meta fetching media, OnCloud's webhook) with no other throttling in front of
+// them - cap by IP so a scrape/abuse burst can't hammer the process or the Bitrix/OnCloud
+// APIs behind it. Token entropy already makes guessing impractical; this is defense in depth.
+const connectLimiter = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: true, legacyHeaders: false });
+const mediaLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: true, legacyHeaders: false });
+const webhookLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: true, legacyHeaders: false });
+
 app.use('/static', express.static(path.join(__dirname, '..', 'public')));
 // The Local App's configured install handler URL is the backend's root ("/"),
 // not /api/bitrix/install - mount at both so it works regardless.
 app.use('/', installRouter);
 app.use('/api/bitrix/install', installRouter);
 app.use('/api/send', sendRouter);
-app.use('/connect', connectRouter);
-app.use('/media', mediaRouter);
-app.use('/api/oncloud/webhook', oncloudWebhookRouter);
+app.use('/connect', connectLimiter, connectRouter);
+app.use('/media', mediaLimiter, mediaRouter);
+app.use('/api/oncloud/webhook', webhookLimiter, oncloudWebhookRouter);
 app.use('/api/analytics', analyticsRouter);
 
 // Bitrix24 requires placement.bind's HANDLER to be on the same domain as the app's

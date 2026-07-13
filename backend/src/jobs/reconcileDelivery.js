@@ -1,5 +1,6 @@
 const oncloud = require('../oncloud/client');
 const analyticsLog = require('../store/analyticsLog');
+const { maskPhone } = require('../lib/redact');
 
 // Only chase entries from the recent past - older unresolved ones are either already
 // stale (Meta will never report back further status) or long past mattering operationally.
@@ -43,7 +44,7 @@ async function reconcileOnce() {
         );
       }
     } catch (err) {
-      console.error(`[reconcileDelivery] failed for phone ${phone}:`, err.message);
+      console.error(`[reconcileDelivery] failed for ${maskPhone(phone)}:`, err.message);
     }
   }
 }
