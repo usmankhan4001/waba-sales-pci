@@ -26,16 +26,16 @@ router.get('/:token', async (req, res) => {
     const number = await connectTokens.resolveToken(token);
 
     if (!number) {
-      console.warn(`[connect] unknown or expired token: ${token}`);
+      req.log.warn({ token }, '[connect] unknown or expired token');
       if (!config.fallbackWhatsappNumber) return res.status(410).send('This link has expired.');
       return res.redirect(302, `https://wa.me/${sanitizePhoneForWaMe(config.fallbackWhatsappNumber)}`);
     }
 
     const safeNumber = sanitizePhoneForWaMe(number);
-    console.log(`[connect] token ${token} -> wa.me/${maskPhone(safeNumber)}`);
+    req.log.info({ token, number: maskPhone(safeNumber) }, '[connect] resolved');
     res.redirect(302, `https://wa.me/${safeNumber}`);
   } catch (err) {
-    console.error(`[connect] error resolving token ${token}:`, err.message);
+    req.log.error({ token, err }, '[connect] error resolving token');
     if (config.fallbackWhatsappNumber) {
       return res.redirect(302, `https://wa.me/${sanitizePhoneForWaMe(config.fallbackWhatsappNumber)}`);
     }

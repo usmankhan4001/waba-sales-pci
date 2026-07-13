@@ -48,7 +48,7 @@ router.get('/:token', async (req, res) => {
     }
 
     if (!isAllowedDownloadUrl(downloadUrl)) {
-      console.error(`[media proxy] refusing to proxy unexpected download host for token ${token}`);
+      req.log.error({ token }, '[media proxy] refusing to proxy unexpected download host');
       return res.status(502).send('Unexpected file host.');
     }
 
@@ -67,7 +67,7 @@ router.get('/:token', async (req, res) => {
     const contentType = response.headers['content-type'];
     if (!isAllowedContentType(contentType)) {
       response.data.destroy();
-      console.error(`[media proxy] refusing to proxy unexpected content-type "${contentType}" for token ${token}`);
+      req.log.error({ token, contentType }, '[media proxy] refusing to proxy unexpected content-type');
       return res.status(502).send('Unexpected file type.');
     }
 
@@ -80,7 +80,7 @@ router.get('/:token', async (req, res) => {
 
     response.data.pipe(res);
   } catch (err) {
-    console.error(`[media proxy] error for token ${token}:`, err.message);
+    req.log.error({ token, err }, '[media proxy] error');
     res.status(500).send('Error retrieving media file.');
   }
 });

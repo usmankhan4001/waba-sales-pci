@@ -1,6 +1,7 @@
 const oncloud = require('../oncloud/client');
 const analyticsLog = require('../store/analyticsLog');
 const { maskPhone } = require('../lib/redact');
+const logger = require('../lib/logger');
 
 // Only chase entries from the recent past - older unresolved ones are either already
 // stale (Meta will never report back further status) or long past mattering operationally.
@@ -44,7 +45,7 @@ async function reconcileOnce() {
         );
       }
     } catch (err) {
-      console.error(`[reconcileDelivery] failed for ${maskPhone(phone)}:`, err.message);
+      logger.error({ phone: maskPhone(phone), err }, '[reconcileDelivery] failed');
     }
   }
 }
@@ -54,7 +55,7 @@ let intervalHandle = null;
 function start(intervalMs = 5 * 60_000) {
   if (intervalHandle) return;
   intervalHandle = setInterval(() => {
-    reconcileOnce().catch((err) => console.error('[reconcileDelivery] cycle failed:', err.message));
+    reconcileOnce().catch((err) => logger.error({ err }, '[reconcileDelivery] cycle failed'));
   }, intervalMs);
   // Don't hold the process open just for this timer - shutdown should be able to proceed.
   intervalHandle.unref?.();

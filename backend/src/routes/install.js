@@ -32,7 +32,7 @@ const SUCCESS_HTML = `
  * ever sending the actual install call with the auth tokens.
  */
 router.get('/', (req, res) => {
-  console.log(`[install] GET probe query=${JSON.stringify(redact(req.query))}`);
+  req.log.info({ query: redact(req.query) }, '[install] GET probe');
   res.set('Content-Type', 'text/html').send(SUCCESS_HTML);
 });
 
@@ -43,12 +43,12 @@ router.get('/', (req, res) => {
  */
 router.post('/', express.urlencoded({ extended: true }), express.json(), async (req, res) => {
   const params = { ...req.query, ...req.body };
-  console.log(`[install] POST content-type=${req.headers['content-type']} body=${JSON.stringify(redact(req.body))}`);
+  req.log.info({ contentType: req.headers['content-type'], body: redact(req.body) }, '[install] POST');
 
   const { DOMAIN, PROTOCOL, AUTH_ID, AUTH_EXPIRES, REFRESH_ID, member_id } = params;
 
   if (!DOMAIN || !AUTH_ID || !REFRESH_ID) {
-    console.warn('[install] POST missing required params, keys present:', Object.keys(params));
+    req.log.warn({ keys: Object.keys(params) }, '[install] POST missing required params');
     return res.status(400).send('Missing required install parameters');
   }
 
@@ -62,7 +62,7 @@ router.post('/', express.urlencoded({ extended: true }), express.json(), async (
       memberId: member_id,
     });
   } catch (err) {
-    console.error(`[install] saveInstallAuth failed for ${DOMAIN}:`, err.message);
+    req.log.error({ domain: DOMAIN, err }, '[install] saveInstallAuth failed');
     return res.status(500).send('Failed to save install auth');
   }
 
@@ -78,7 +78,7 @@ router.post('/', express.urlencoded({ extended: true }), express.json(), async (
       TITLE: 'Send WhatsApp Material',
     });
   } catch (err) {
-    console.error(`[install] placement.bind failed for ${DOMAIN}:`, err.response?.data || err.message);
+    req.log.error({ domain: DOMAIN, detail: err.response?.data || err.message }, '[install] placement.bind failed');
   }
 
   res.set('Content-Type', 'text/html').send(SUCCESS_HTML);

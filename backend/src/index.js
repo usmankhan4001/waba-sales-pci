@@ -1,10 +1,15 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const pinoHttp = require('pino-http');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const config = require('./config');
+const logger = require('./lib/logger');
+const { DATA_DIR } = require('./lib/fileStore');
+const tokenStore = require('./store/tokenStore');
 
 const installRouter = require('./routes/install');
 const sendRouter = require('./routes/send');
@@ -18,16 +23,21 @@ const reconcileDelivery = require('./jobs/reconcileDelivery');
 // process down with no trace beyond whatever happened to be in scope's default handler -
 // log it clearly so a crash is diagnosable instead of just "the app is down, no idea why".
 process.on('unhandledRejection', (reason) => {
-  console.error('[fatal] Unhandled rejection:', reason);
+  logger.error({ err: reason }, '[fatal] Unhandled rejection');
 });
 process.on('uncaughtException', (err) => {
-  console.error('[fatal] Uncaught exception:', err);
+  logger.fatal({ err }, '[fatal] Uncaught exception');
   // Exit non-zero so the container's restart policy kicks in against a known-clean state,
   // rather than continuing to serve requests from a process that hit undefined behavior.
   process.exit(1);
 });
 
 const app = express();
+
+// Request-ID-correlated access logging (subsumes what morgan would give here) - every log
+// line for one request, plus whatever a route handler logs via req.log, can be tied
+// together via the auto-generated req id instead of guessing from timestamps alone.
+app.use(pinoHttp({ logger }));
 
 // This app is deliberately loaded in a cross-origin iframe by arbitrary Bitrix24 portals
 // (that's the entire point of the CRM tab placement), and install.js's success page loads
@@ -51,7 +61,30 @@ app.use(
   })
 );
 
-app.get('/health', (req, res) => res.json({ ok: true }));
+// Unconditional {ok:true} previously meant this would have reported healthy throughout the
+// actual outage (tokens.json wiped by a redeploy) - now it verifies the two things that
+// actually broke: the data directory is writable, and there's at least one stored Bitrix
+// install auth (see tokenStore.hasAnyBitrixAuth). A fresh, never-installed deploy is also
+// correctly reported unhealthy here, which is an accurate reflection of its usable state.
+app.get('/health', (req, res) => {
+  const checks = {};
+
+  try {
+    const probePath = path.join(DATA_DIR, `.health-write-test-${process.pid}`);
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(probePath, 'ok');
+    fs.unlinkSync(probePath);
+    checks.dataDirWritable = true;
+  } catch (err) {
+    checks.dataDirWritable = false;
+    checks.dataDirError = err.message;
+  }
+
+  checks.hasBitrixAuth = tokenStore.hasAnyBitrixAuth();
+
+  const healthy = checks.dataDirWritable && checks.hasBitrixAuth;
+  res.status(healthy ? 200 : 503).json({ ok: healthy, checks });
+});
 
 // These three are hit by parties outside our control (WhatsApp recipients tapping a CTA
 // button, Meta fetching media, OnCloud's webhook) with no other throttling in front of
@@ -86,7 +119,7 @@ if (config.frontendUrl) {
 }
 
 const server = app.listen(config.port, () => {
-  console.log(`WABA-Bitrix24 backend listening on port ${config.port}`);
+  logger.info(`WABA-Bitrix24 backend listening on port ${config.port}`);
   reconcileDelivery.start();
 });
 
@@ -94,15 +127,15 @@ const server = app.listen(config.port, () => {
 // can drop in-flight requests and interrupt file writes mid-flight (the atomic writes in
 // lib/fileStore.js protect against corruption, but connections should still drain cleanly).
 function gracefulShutdown(signal) {
-  console.log(`[shutdown] received ${signal}, draining connections...`);
+  logger.info(`[shutdown] received ${signal}, draining connections...`);
   reconcileDelivery.stop();
   server.close(() => {
-    console.log('[shutdown] all connections drained, exiting.');
+    logger.info('[shutdown] all connections drained, exiting.');
     process.exit(0);
   });
   // Don't hang forever if a connection never closes on its own.
   setTimeout(() => {
-    console.warn('[shutdown] drain timed out, forcing exit.');
+    logger.warn('[shutdown] drain timed out, forcing exit.');
     process.exit(1);
   }, 10_000).unref();
 }

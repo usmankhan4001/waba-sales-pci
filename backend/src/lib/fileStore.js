@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { withFileLock } = require('../store/withFileLock');
+const logger = require('./logger');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 
@@ -38,11 +39,9 @@ function createJsonStore(filename, { defaultValue = {} } = {}) {
         ensureDataDir();
         fs.writeFileSync(corruptPath, raw);
       } catch (archiveErr) {
-        console.error(`[fileStore] failed to archive corrupt ${filePath}:`, archiveErr.message);
+        logger.error({ err: archiveErr, filePath }, '[fileStore] failed to archive corrupt file');
       }
-      console.error(
-        `[fileStore] ${filePath} is corrupt (${err.message}). Archived as ${corruptPath} for recovery - resetting in-memory view to default.`
-      );
+      logger.error({ err, filePath, corruptPath }, '[fileStore] file is corrupt - archived and reset to default');
       return structuredClone(defaultValue);
     }
   }

@@ -1,6 +1,17 @@
 const config = require('../config');
 const tokenStore = require('../store/tokenStore');
 const httpClient = require('../lib/httpClient');
+const logger = require('../lib/logger');
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function backoffDelayMs(err, attempt) {
+  const retryAfterSeconds = Number(err.response?.headers?.['retry-after']);
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) return retryAfterSeconds * 1000;
+  return 500 * 2 ** (attempt - 1) + Math.random() * 250; // exponential backoff + jitter
+}
 
 let inFlightLogin = null;
 async function login() {
@@ -91,12 +102,16 @@ async function sendTemplateMessageOnce({ phone, templateName, templateLanguage =
 
   // Log only a curated safe subset - OnCloud's response shape isn't formally documented,
   // and echoing the raw body risks leaking the phone number or message content into logs.
-  console.log(`[oncloud] sendtemplatemessage ${templateName} ->`, {
-    status: data?.status,
-    success: data?.success,
-    message_id: data?.message_id,
-    error: data?.error || data?.message || null,
-  });
+  logger.info(
+    {
+      templateName,
+      status: data?.status,
+      success: data?.success,
+      message_id: data?.message_id,
+      error: data?.error || data?.message || null,
+    },
+    '[oncloud] sendtemplatemessage'
+  );
 
   // OnCloud returns a queued/success envelope even when Meta later rejects the
   // message (e.g. language mismatch, bad params). Surface those as real errors so
@@ -108,16 +123,29 @@ async function sendTemplateMessageOnce({ phone, templateName, templateLanguage =
   return data;
 }
 
-/** Guardrail 8.3: retry once on transient network/5xx before surfacing failure. */
+/** Guardrail 8.3: retry transient network/5xx errors and OnCloud/Meta's 429 rate-limiting
+ * (honoring Retry-After when present, otherwise exponential backoff + jitter) - up to 3
+ * attempts total - before surfacing failure to the caller. A 429 is "slow down", not a
+ * real failure, and previously wasn't retried at all. */
 async function sendTemplateMessage(args) {
-  try {
-    return await sendTemplateMessageOnce(args);
-  } catch (err) {
-    const status = err.response?.status;
-    const transient = !err.response || status >= 500;
-    if (!transient) throw err;
-    return sendTemplateMessageOnce(args);
+  const MAX_ATTEMPTS = 3;
+  let lastErr;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await sendTemplateMessageOnce(args);
+    } catch (err) {
+      lastErr = err;
+      const status = err.response?.status;
+      const retryable = !err.response || status === 429 || status >= 500;
+      if (!retryable || attempt === MAX_ATTEMPTS) throw err;
+
+      const delay = status === 429 ? backoffDelayMs(err, attempt) : 0;
+      logger.warn({ attempt, status, delay }, '[oncloud] sendTemplateMessage failed, retrying');
+      if (delay > 0) await sleep(delay);
+    }
   }
+  throw lastErr;
 }
 
 function textComponent(values) {

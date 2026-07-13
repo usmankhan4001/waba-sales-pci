@@ -10,6 +10,7 @@ const suppressionList = require('../store/suppressionList');
 const analyticsLog = require('../store/analyticsLog');
 const idempotency = require('../store/idempotency');
 const tokenStore = require('../store/tokenStore');
+const logger = require('../lib/logger');
 
 const router = express.Router();
 router.use(express.json());
@@ -130,7 +131,7 @@ async function resolveEntityPhones(domain, accessToken, entityData) {
         phones = normalizePhones(contactData.FM.PHONE);
       }
     } catch (err) {
-      console.warn(`[send] failed to fetch linked contact ${contactId}:`, err.message);
+      logger.warn({ contactId, err }, '[send] failed to fetch linked contact');
     }
   }
 
@@ -362,7 +363,7 @@ router.post('/', async (req, res) => {
             description: `${ctaLine}\n${label}: ${r.success ? 'sent ✓' : `failed ✗ (${r.error})`}`,
           });
         } catch (err) {
-          console.error(`[send] logActivity failed for lead ${leadId}, item ${label}:`, err.response?.data || err.message);
+          req.log.error({ leadId, item: label, detail: err.response?.data || err.message }, '[send] logActivity failed');
         }
         try {
           await analyticsLog.record({
@@ -376,7 +377,7 @@ router.post('/', async (req, res) => {
             oncloudWamid: r.oncloudWamid || null,
           });
         } catch (err) {
-          console.error(`[send] analyticsLog.record failed for lead ${leadId}, item ${label}:`, err.message);
+          req.log.error({ leadId, item: label, err }, '[send] analyticsLog.record failed');
         }
       })
     );
@@ -385,7 +386,7 @@ router.post('/', async (req, res) => {
     if (idempotencyKey) await idempotency.cacheResponse(idempotencyKey, responseBody);
     res.json(responseBody);
   } catch (err) {
-    console.error('[send] unhandled error:', err.response?.data || err.message);
+    req.log.error({ detail: err.response?.data || err.message }, '[send] unhandled error');
     if (err.rateLimited) return res.status(429).json({ error: err.message });
     res.status(500).json({ error: err.message });
   }

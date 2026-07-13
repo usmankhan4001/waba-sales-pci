@@ -44,12 +44,12 @@ router.post('/', async (req, res) => {
   try {
     if (from && typeof text === 'string' && OPT_OUT_PATTERN.test(text)) {
       await suppressionList.suppress(from, 'lead replied STOP/unsubscribe');
-      console.log(`[oncloud-webhook] suppressed ${maskPhone(from)} (opt-out)`);
+      req.log.info({ phone: maskPhone(from) }, '[oncloud-webhook] suppressed (opt-out)');
     }
   } catch (err) {
     // Still ack with 200 below - OnCloud has no reason to retry, and a failed opt-out
     // write shouldn't turn into a webhook-delivery retry storm on their side.
-    console.error(`[oncloud-webhook] failed to record opt-out for ${maskPhone(from)}:`, err.message);
+    req.log.error({ phone: maskPhone(from), err }, '[oncloud-webhook] failed to record opt-out');
   }
 
   res.status(200).json({ ok: true });
