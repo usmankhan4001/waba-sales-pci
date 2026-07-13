@@ -1,5 +1,5 @@
 const express = require('express');
-const axios = require('axios');
+const httpClient = require('../lib/httpClient');
 const mediaTokens = require('../store/mediaTokens');
 const { callMethodWithToken } = require('../bitrix/client');
 
@@ -27,11 +27,14 @@ router.get('/:token', async (req, res) => {
 
     // 2. Proxy the download. DOWNLOAD_URL from disk.file.get is already self-signed
     // (embeds its own auth+token query params) - do not add our own auth param, it
-    // collides with the URL's signed token and breaks the download.
-    const response = await axios({
+    // collides with the URL's signed token and breaks the download. Longer timeout than
+    // the shared client's default - this streams brochures/videos, which can take longer
+    // than a typical JSON API round-trip.
+    const response = await httpClient({
       method: 'GET',
       url: downloadUrl,
-      responseType: 'stream'
+      responseType: 'stream',
+      timeout: 60000,
     });
 
     // Pass along headers like content-type and content-length

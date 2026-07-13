@@ -1,6 +1,6 @@
-const axios = require('axios');
 const config = require('../config');
 const tokenStore = require('../store/tokenStore');
+const httpClient = require('../lib/httpClient');
 
 const OAUTH_URL = 'https://oauth.bitrix.info/oauth/token/';
 
@@ -27,7 +27,7 @@ async function refreshAuth(domain) {
     const auth = tokenStore.getBitrixAuth(domain);
     if (!auth) throw new Error(`No stored Bitrix auth for domain ${domain}`);
 
-    const { data } = await axios.get(OAUTH_URL, {
+    const { data } = await httpClient.get(OAUTH_URL, {
       params: {
         grant_type: 'refresh_token',
         client_id: config.bitrix.clientId,

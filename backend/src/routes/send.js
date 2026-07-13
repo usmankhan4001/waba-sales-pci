@@ -7,6 +7,7 @@ const connectTokens = require('../store/connectTokens');
 const mediaTokens = require('../store/mediaTokens');
 const suppressionList = require('../store/suppressionList');
 const analyticsLog = require('../store/analyticsLog');
+const idempotency = require('../store/idempotency');
 
 const router = express.Router();
 router.use(express.json());
@@ -139,6 +140,14 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'files must be an array' });
   }
 
+  // A frontend retry on a network blip (timeout, dropped connection) must not re-send the
+  // same WhatsApp templates - replay the cached result for this key instead of redoing work.
+  const idempotencyKey = req.get('Idempotency-Key');
+  if (idempotencyKey) {
+    const cached = await idempotency.getCachedResponse(idempotencyKey);
+    if (cached) return res.json(cached);
+  }
+
   try {
     let endpoint = 'crm.lead.get';
     if (entityTypeId === 2) endpoint = 'crm.deal.get';
@@ -173,7 +182,10 @@ router.post('/', async (req, res) => {
       return res.status(200).json({ results: [{ item: 'all', success: false, error: 'Lead has opted out of WhatsApp messaging' }] });
     }
 
-    await rateLimiter.checkAndIncrement(responsibleId, ctaNumber);
+    // Fail fast if this executive is already over today's ceiling before doing any work.
+    // Each item below re-checks and only consumes a slot on actual success (see below) -
+    // a fully-failed send must not burn quota it never used.
+    rateLimiter.assertUnderLimit(responsibleId, ctaNumber);
 
     const templateArray = Array.isArray(approvedTemplates) ? approvedTemplates : approvedTemplates?.data || [];
     // FR-14: map each approved template name -> its approved language code. The
@@ -229,8 +241,9 @@ router.post('/', async (req, res) => {
           throw new Error(`${CONTACT_NOW_TEMPLATE} template is not in approved state`);
         }
         if (!coverImageLink) throw new Error('No project cover image and no default cover image configured');
+        rateLimiter.assertUnderLimit(responsibleId, ctaNumber);
 
-        await oncloud.sendTemplateMessage({
+        const sendResult = await oncloud.sendTemplateMessage({
           phone,
           templateName: CONTACT_NOW_TEMPLATE,
           templateLanguage: approvedTemplatesMap.get(CONTACT_NOW_TEMPLATE) || 'en',
@@ -240,7 +253,13 @@ router.post('/', async (req, res) => {
             oncloud.urlButtonComponent(connectToken),
           ],
         });
-        results.push({ item: 'contact_now', success: true });
+        await rateLimiter.recordSuccess(responsibleId, ctaNumber);
+        results.push({
+          item: 'contact_now',
+          success: true,
+          oncloudMessageId: sendResult?.message_id,
+          oncloudWamid: sendResult?.message_wamid,
+        });
       } catch (err) {
         results.push({ item: 'contact_now', success: false, error: err.message });
       }
@@ -260,14 +279,22 @@ router.post('/', async (req, res) => {
         if (error) throw new Error(error);
         // Direct-download link (not the HTML preview page), per guardrail 8.2 - read-only, not editable.
         if (!link) throw new Error('Could not resolve a shareable Drive link for this file');
+        rateLimiter.assertUnderLimit(responsibleId, ctaNumber);
 
-        await oncloud.sendTemplateMessage({
+        const sendResult = await oncloud.sendTemplateMessage({
           phone,
           templateName: mapping.name,
           templateLanguage: approvedTemplatesMap.get(mapping.name) || 'en',
           components: [mapping.build({ link, filename: file.filename }), oncloud.textComponent(bodyVars), oncloud.urlButtonComponent(connectToken)],
         });
-        results.push({ item: file.filename || file.type, success: true, type: file.type });
+        await rateLimiter.recordSuccess(responsibleId, ctaNumber);
+        results.push({
+          item: file.filename || file.type,
+          success: true,
+          type: file.type,
+          oncloudMessageId: sendResult?.message_id,
+          oncloudWamid: sendResult?.message_wamid,
+        });
       } catch (err) {
         results.push({ item: file.filename || file.type, success: false, error: err.message, type: file.type });
       }
@@ -298,14 +325,25 @@ router.post('/', async (req, res) => {
           console.error(`[send] logActivity failed for lead ${leadId}, item ${label}:`, err.response?.data || err.message);
         }
         try {
-          await analyticsLog.record({ ...analyticsBase, item: r.item, type: r.type || 'contact_now', success: r.success, error: r.error || null });
+          await analyticsLog.record({
+            ...analyticsBase,
+            phone,
+            item: r.item,
+            type: r.type || 'contact_now',
+            success: r.success,
+            error: r.error || null,
+            oncloudMessageId: r.oncloudMessageId || null,
+            oncloudWamid: r.oncloudWamid || null,
+          });
         } catch (err) {
           console.error(`[send] analyticsLog.record failed for lead ${leadId}, item ${label}:`, err.message);
         }
       })
     );
 
-    res.json({ results });
+    const responseBody = { results };
+    if (idempotencyKey) await idempotency.cacheResponse(idempotencyKey, responseBody);
+    res.json(responseBody);
   } catch (err) {
     console.error('[send] unhandled error:', err.response?.data || err.message);
     if (err.rateLimited) return res.status(429).json({ error: err.message });

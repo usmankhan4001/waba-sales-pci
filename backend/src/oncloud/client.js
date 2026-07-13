@@ -1,6 +1,6 @@
-const axios = require('axios');
 const config = require('../config');
 const tokenStore = require('../store/tokenStore');
+const httpClient = require('../lib/httpClient');
 
 let inFlightLogin = null;
 async function login() {
@@ -10,7 +10,7 @@ async function login() {
     form.append('email', config.oncloud.email);
     form.append('password', config.oncloud.password);
 
-    const { data } = await axios.post(`${config.oncloud.baseUrl}/api/login`, form);
+    const { data } = await httpClient.post(`${config.oncloud.baseUrl}/api/login`, form);
     const token = data.token || data.data?.token;
     if (!token) throw new Error('OnCloud login did not return a token');
     tokenStore.saveOncloudToken(token);
@@ -38,7 +38,7 @@ async function getTemplates() {
     return templatesCache.templates;
   }
   const token = await getToken();
-  const { data } = await axios.get(`${config.oncloud.baseUrl}/api/wpbox/getTemplates`, {
+  const { data } = await httpClient.get(`${config.oncloud.baseUrl}/api/wpbox/getTemplates`, {
     params: { token },
   });
   const templates = data.templates || [];
@@ -46,9 +46,42 @@ async function getTemplates() {
   return templates;
 }
 
+const CONTACTS_CACHE_TTL_MS = 5 * 60_000;
+let contactsCache = null; // { fetchedAt, byPhone: Map }
+
+/** Used by the delivery-status reconciliation job to look up an OnCloud contact_id for a
+ * phone number (getMessages requires contact_id, not phone) - cached briefly since this
+ * account has thousands of contacts and the endpoint has no server-side phone filter. */
+async function findContactIdByPhone(phone) {
+  if (!contactsCache || Date.now() - contactsCache.fetchedAt >= CONTACTS_CACHE_TTL_MS) {
+    const token = await getToken();
+    const { data } = await httpClient.get(`${config.oncloud.baseUrl}/api/wpbox/getContacts`, {
+      params: { token },
+    });
+    const byPhone = new Map();
+    for (const c of data.contacts || []) {
+      byPhone.set(String(c.phone || '').replace(/\D/g, ''), c.id);
+    }
+    contactsCache = { fetchedAt: Date.now(), byPhone };
+  }
+  return contactsCache.byPhone.get(String(phone).replace(/\D/g, '')) || null;
+}
+
+/** Real per-message delivery status/errors (e.g. Meta's "healthy ecosystem engagement"
+ * throttle, "Media upload error") only show up here - sendTemplateMessage's response is
+ * just a queued/success envelope, not delivery truth. Used by the reconciliation job. */
+async function getMessagesForContact(contactId) {
+  const token = await getToken();
+  const { data } = await httpClient.post(`${config.oncloud.baseUrl}/api/wpbox/getMessages`, {
+    token,
+    contact_id: contactId,
+  });
+  return data.data || [];
+}
+
 async function sendTemplateMessageOnce({ phone, templateName, templateLanguage = 'en', components = [] }) {
   const token = await getToken();
-  const { data } = await axios.post(`${config.oncloud.baseUrl}/api/wpbox/sendtemplatemessage`, {
+  const { data } = await httpClient.post(`${config.oncloud.baseUrl}/api/wpbox/sendtemplatemessage`, {
     token,
     phone,
     template_name: templateName,
@@ -109,6 +142,8 @@ module.exports = {
   getToken,
   getTemplates,
   sendTemplateMessage,
+  findContactIdByPhone,
+  getMessagesForContact,
   textComponent,
   documentHeaderComponent,
   videoHeaderComponent,

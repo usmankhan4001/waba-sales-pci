@@ -20,17 +20,26 @@ function sanitizePhoneForWaMe(raw) {
 /** FR-16: resolves a short-lived connect token and 302s to the executive's wa.me link. */
 router.get('/:token', async (req, res) => {
   const token = stripLiteralPlaceholder(req.params.token);
-  const number = await connectTokens.resolveToken(token);
 
-  if (!number) {
-    console.warn(`[connect] unknown or expired token: ${token}`);
-    if (!config.fallbackWhatsappNumber) return res.status(410).send('This link has expired.');
-    return res.redirect(302, `https://wa.me/${sanitizePhoneForWaMe(config.fallbackWhatsappNumber)}`);
+  try {
+    const number = await connectTokens.resolveToken(token);
+
+    if (!number) {
+      console.warn(`[connect] unknown or expired token: ${token}`);
+      if (!config.fallbackWhatsappNumber) return res.status(410).send('This link has expired.');
+      return res.redirect(302, `https://wa.me/${sanitizePhoneForWaMe(config.fallbackWhatsappNumber)}`);
+    }
+
+    const safeNumber = sanitizePhoneForWaMe(number);
+    console.log(`[connect] token ${token} -> wa.me/${safeNumber}`);
+    res.redirect(302, `https://wa.me/${safeNumber}`);
+  } catch (err) {
+    console.error(`[connect] error resolving token ${token}:`, err.message);
+    if (config.fallbackWhatsappNumber) {
+      return res.redirect(302, `https://wa.me/${sanitizePhoneForWaMe(config.fallbackWhatsappNumber)}`);
+    }
+    res.status(500).send('Something went wrong resolving this link.');
   }
-
-  const safeNumber = sanitizePhoneForWaMe(number);
-  console.log(`[connect] token ${token} -> wa.me/${safeNumber}`);
-  res.redirect(302, `https://wa.me/${safeNumber}`);
 });
 
 module.exports = router;

@@ -10,6 +10,20 @@ const connectRouter = require('./routes/connect');
 const mediaRouter = require('./routes/media');
 const oncloudWebhookRouter = require('./routes/oncloudWebhook');
 const analyticsRouter = require('./routes/analytics');
+const reconcileDelivery = require('./jobs/reconcileDelivery');
+
+// A single unhandled rejection/exception anywhere in the app previously took the whole
+// process down with no trace beyond whatever happened to be in scope's default handler -
+// log it clearly so a crash is diagnosable instead of just "the app is down, no idea why".
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] Unhandled rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] Uncaught exception:', err);
+  // Exit non-zero so the container's restart policy kicks in against a known-clean state,
+  // rather than continuing to serve requests from a process that hit undefined behavior.
+  process.exit(1);
+});
 
 const app = express();
 
@@ -48,6 +62,27 @@ if (config.frontendUrl) {
   );
 }
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   console.log(`WABA-Bitrix24 backend listening on port ${config.port}`);
+  reconcileDelivery.start();
 });
+
+// Dokploy sends SIGTERM on every redeploy - without handling it, Node's default behavior
+// can drop in-flight requests and interrupt file writes mid-flight (the atomic writes in
+// lib/fileStore.js protect against corruption, but connections should still drain cleanly).
+function gracefulShutdown(signal) {
+  console.log(`[shutdown] received ${signal}, draining connections...`);
+  reconcileDelivery.stop();
+  server.close(() => {
+    console.log('[shutdown] all connections drained, exiting.');
+    process.exit(0);
+  });
+  // Don't hang forever if a connection never closes on its own.
+  setTimeout(() => {
+    console.warn('[shutdown] drain timed out, forcing exit.');
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

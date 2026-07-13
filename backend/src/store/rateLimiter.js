@@ -1,50 +1,42 @@
-const fs = require('fs');
-const path = require('path');
 const config = require('../config');
-const { withFileLock } = require('./withFileLock');
+const { createJsonStore } = require('../lib/fileStore');
 
-const DATA_DIR = path.join(__dirname, '..', '..', 'data');
-const FILE = path.join(DATA_DIR, 'sendCounts.json');
+const store = createJsonStore('sendCounts.json');
 
 function todayKey(userId) {
   const day = new Date().toISOString().slice(0, 10);
   return `${userId}:${day}`;
 }
 
-function read() {
-  if (!fs.existsSync(FILE)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(FILE, 'utf8'));
-  } catch (err) {
-    console.warn(`[rateLimiter] Error parsing ${FILE}, resetting to empty:`, err.message);
-    return {};
+/**
+ * Guardrail 8.1: rate-limit sends per executive per day. userId is the lead's
+ * ASSIGNED_BY_ID, which can be undefined for unassigned leads - in that case fallbackKey
+ * (the executive's own CTA number) keeps the bucket scoped per-person instead of every
+ * unassigned-lead send sharing one global bucket.
+ */
+function keyFor(userId, fallbackKey) {
+  return todayKey(userId || `cta:${fallbackKey || 'unknown'}`);
+}
+
+/** Read-only check - throws if this executive is already at/over today's ceiling.
+ * Does NOT consume a slot; call recordSuccess separately once a send actually succeeds,
+ * so a failed attempt never burns quota it didn't use. */
+function assertUnderLimit(userId, fallbackKey) {
+  const data = store.read();
+  const count = data[keyFor(userId, fallbackKey)] || 0;
+  if (count >= config.dailySendLimitPerExecutive) {
+    const err = new Error(`Daily send limit (${config.dailySendLimitPerExecutive}) reached for this user`);
+    err.rateLimited = true;
+    throw err;
   }
 }
 
-function write(data) {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
-}
-
-/**
- * Guardrail 8.1: rate-limit sends per executive per day. Throws if over ceiling.
- * userId is the lead's ASSIGNED_BY_ID, which can be undefined for unassigned leads - in that
- * case fallbackKey (the executive's own CTA number) keeps the bucket scoped per-person instead
- * of every unassigned-lead send sharing one global bucket.
- */
-async function checkAndIncrement(userId, fallbackKey) {
-  return withFileLock(FILE, () => {
-    const data = read();
-    const key = todayKey(userId || `cta:${fallbackKey || 'unknown'}`);
-    const count = data[key] || 0;
-    if (count >= config.dailySendLimitPerExecutive) {
-      const err = new Error(`Daily send limit (${config.dailySendLimitPerExecutive}) reached for this user`);
-      err.rateLimited = true;
-      throw err;
-    }
-    data[key] = count + 1;
-    write(data);
+/** Consumes one daily-send slot. Call only after a message actually succeeds. */
+async function recordSuccess(userId, fallbackKey) {
+  return store.update((data) => {
+    const key = keyFor(userId, fallbackKey);
+    data[key] = (data[key] || 0) + 1;
   });
 }
 
-module.exports = { checkAndIncrement };
+module.exports = { assertUnderLimit, recordSuccess };

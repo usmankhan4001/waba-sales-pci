@@ -52,14 +52,19 @@ router.post('/', express.urlencoded({ extended: true }), express.json(), async (
     return res.status(400).send('Missing required install parameters');
   }
 
-  await saveInstallAuth({
-    domain: DOMAIN,
-    protocol: PROTOCOL === '1' ? 'https' : 'https',
-    authId: AUTH_ID,
-    authExpires: AUTH_EXPIRES,
-    refreshId: REFRESH_ID,
-    memberId: member_id,
-  });
+  try {
+    await saveInstallAuth({
+      domain: DOMAIN,
+      protocol: PROTOCOL === '1' ? 'https' : 'https',
+      authId: AUTH_ID,
+      authExpires: AUTH_EXPIRES,
+      refreshId: REFRESH_ID,
+      memberId: member_id,
+    });
+  } catch (err) {
+    console.error(`[install] saveInstallAuth failed for ${DOMAIN}:`, err.message);
+    return res.status(500).send('Failed to save install auth');
+  }
 
   // FR-1: bind the Lead-detail placement - no manual UI step needed for this part.
   // The HANDLER must be on this same backend domain (the app's registered domain) -

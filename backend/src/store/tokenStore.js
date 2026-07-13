@@ -1,50 +1,34 @@
-const fs = require('fs');
-const path = require('path');
-const { withFileLock } = require('./withFileLock');
+const { createJsonStore } = require('../lib/fileStore');
 
-const DATA_DIR = path.join(__dirname, '..', '..', 'data');
-const FILE = path.join(DATA_DIR, 'tokens.json');
-
-function readAll() {
-  if (!fs.existsSync(FILE)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(FILE, 'utf8'));
-  } catch (err) {
-    console.warn(`[tokenStore] Error parsing ${FILE}, resetting to empty:`, err.message);
-    return {};
-  }
-}
-
-function writeAll(data) {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
-}
+const store = createJsonStore('tokens.json');
 
 async function saveBitrixAuth(domain, auth) {
-  return withFileLock(FILE, () => {
-    const data = readAll();
+  return store.update((data) => {
     data.bitrix = data.bitrix || {};
     data.bitrix[domain] = auth;
-    writeAll(data);
   });
 }
 
 function getBitrixAuth(domain) {
-  const data = readAll();
+  const data = store.read();
   return data.bitrix && data.bitrix[domain];
 }
 
 async function saveOncloudToken(token) {
-  return withFileLock(FILE, () => {
-    const data = readAll();
+  return store.update((data) => {
     data.oncloud = { token, fetchedAt: Date.now() };
-    writeAll(data);
   });
 }
 
 function getOncloudToken() {
-  const data = readAll();
+  const data = store.read();
   return data.oncloud && data.oncloud.token;
 }
 
-module.exports = { saveBitrixAuth, getBitrixAuth, saveOncloudToken, getOncloudToken };
+/** Used by the health check (Phase 2) to detect "app looks up but has no real Bitrix auth". */
+function hasAnyBitrixAuth() {
+  const data = store.read();
+  return Boolean(data.bitrix && Object.keys(data.bitrix).length > 0);
+}
+
+module.exports = { saveBitrixAuth, getBitrixAuth, saveOncloudToken, getOncloudToken, hasAnyBitrixAuth };

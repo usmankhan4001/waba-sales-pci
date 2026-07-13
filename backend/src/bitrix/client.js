@@ -1,4 +1,4 @@
-const axios = require('axios');
+const httpClient = require('../lib/httpClient');
 const { getValidAuth, refreshAuth } = require('./auth');
 
 // The frontend's B24 SDK may hand back domain as a bare host ("pcicrm.bitrix24.com")
@@ -17,7 +17,7 @@ async function callMethod(domain, method, params = {}) {
   const url = `${auth.protocol}://${auth.domain}/rest/${method}`;
 
   try {
-    const { data } = await axios.post(url, params, {
+    const { data } = await httpClient.post(url, params, {
       params: { auth: auth.accessToken },
     });
     if (data.error === 'expired_token' || data.error === 'invalid_token') {
@@ -27,7 +27,7 @@ async function callMethod(domain, method, params = {}) {
   } catch (err) {
     if (err.expired || err.response?.data?.error === 'expired_token') {
       const refreshed = await refreshAuth(domain);
-      const { data } = await axios.post(url, params, {
+      const { data } = await httpClient.post(url, params, {
         params: { auth: refreshed.accessToken },
       });
       return data;
@@ -43,7 +43,7 @@ async function callMethod(domain, method, params = {}) {
  */
 async function callMethodWithToken(domain, method, params = {}, accessToken) {
   const url = `https://${normalizeDomain(domain)}/rest/${method}`;
-  const { data } = await axios.post(url, params, { params: { auth: accessToken } });
+  const { data } = await httpClient.post(url, params, { params: { auth: accessToken } });
   // Bitrix returns errors as HTTP 200 with an {error, error_description} body - axios sees
   // this as success, so without this check a stale/expired token silently produces undefined
   // results downstream (misreported as "Lead not found" etc.) instead of a clear failure.
