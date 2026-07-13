@@ -12,12 +12,11 @@ const router = express.Router();
 router.use(express.json());
 
 // Real approved OnCloud template names in this OnCloud account.
+// image/layout removed: no such templates exist yet in Meta - re-add once created & approved.
 const CONTACT_NOW_TEMPLATE = 'contact_now_sales_pci';
 const MEDIA_TEMPLATES = {
   brochure: { name: 'send_brochure_doc_sales_pci', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
   video: { name: 'send_project_video_sales_pci', build: (file) => oncloud.videoHeaderComponent(file.link) },
-  image: { name: 'send_project_image_sales_pci', build: (file) => oncloud.imageHeaderComponent(file.link) },
-  layout: { name: 'send_layout_plan_sales_pci', build: (file) => oncloud.documentHeaderComponent(file.link, file.filename) },
 };
 
 // We generate a short-lived proxy token mapped to this file.

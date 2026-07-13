@@ -12,13 +12,12 @@ const leadPhone = ref('')
 const projects = ref<{ id: number; title: string }[]>([])
 const selectedProjectId = ref<number | null>(null)
 
-type MessageType = 'contact_now' | 'brochure' | 'video' | 'image' | 'layout'
+// image/layout removed: no such templates exist yet in Meta - re-add once created & approved.
+type MessageType = 'contact_now' | 'brochure' | 'video'
 const MESSAGE_TYPE_LABELS: Record<MessageType, string> = {
   contact_now: 'Contact Now (Image)',
   brochure: 'Brochure (PDF)',
   video: 'Video',
-  image: 'Image',
-  layout: 'Layout Plan (PDF)',
 }
 const selectedMessageTypes = ref<MessageType[]>(['contact_now'])
 
@@ -38,12 +37,10 @@ const sending = ref(false)
 const results = ref<{ item: string; success: boolean; error?: string }[] | null>(null)
 
 const TYPE_BY_KEYWORD: [RegExp, DriveFile['type']][] = [
-  [/layout/i, 'layout'],
   [/brochure/i, 'brochure'],
   [/video/i, 'video'],
   [/\.(mp4|mov)$/i, 'video'],
   [/\.pdf$/i, 'brochure'],
-  [/\.(png|jpe?g|gif|webp)$/i, 'image'],
 ]
 
 function classify(name: string): DriveFile['type'] {
@@ -204,18 +201,12 @@ const PREVIEW_BODY: Record<MessageType, string> = {
     'Hi *{{1}}*,\nAs requested, I am sharing the brochure for *{{2}}*. It includes the project overview, layouts, amenities, location details, and key highlights.\nTo Book your Site Visit Today, tap below.\n\n*{{3}}*\nSales Executive',
   video:
     'Hi *{{1}}*,\nHere is the construction update for *{{2}}*.\nIt gives you a clearer look at the project update, spaces, lifestyle, and overall experience before your visit.\nTap below to discuss the details and payment plan.\n\n*{{3}}*\nSales Executive',
-  image:
-    'Hi *{{1}}*,\nThank you for your interest in *{{2}}*.\n\nWe will guide you with project details, availability, pricing, payment plans, and the next steps.\nTap below to connect directly.\n\n*{{3}}*\nSales Executive',
-  layout:
-    'Hi *{{1}}*,\nAs requested, I am sharing the layout plan for *{{2}}*. It includes the project overview, layouts, amenities, location details, and key highlights.\nTo Book your Site Visit Today, tap below.\n\n*{{3}}*\nSales Executive',
 }
 
 const PREVIEW_BUTTON: Record<string, string> = {
   contact_now: 'Talk to Advisor',
   brochure: 'Schedule Your Site Visit',
   video: 'Talk to Advisor',
-  image: 'Talk to Advisor',
-  layout: 'Schedule Your Site Visit',
 }
 
 function renderPreviewBody(type: MessageType) {
@@ -439,7 +430,7 @@ async function send() {
                     <svg class="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                   </div>
                 </div>
-                <div v-else-if="item.type === 'brochure' || item.type === 'layout'" class="absolute inset-0 flex flex-col items-center justify-center text-[#ff5252]">
+                <div v-else-if="item.type === 'brochure'" class="absolute inset-0 flex flex-col items-center justify-center text-[#ff5252]">
                    <svg class="w-12 h-12 mb-1" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5c0 .8-.7 1.5-1.5 1.5H7v2H5.5V9H8c.8 0 1.5.7 1.5 1.5v1zM13 14c0 .8-.7 1.5-1.5 1.5H9.5V9H11.5c.8 0 1.5.7 1.5 1.5v3.5zm5.5-1.5h-2.5V14h-1.5V9H18.5v1.5h-2.5v1h2.5v1z"/></svg>
                    <span class="text-[11px] font-bold text-[#54656f] px-4 truncate w-full text-center">{{ item.label }}</span>
                 </div>
